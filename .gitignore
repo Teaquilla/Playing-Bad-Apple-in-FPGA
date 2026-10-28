@@ -41,7 +41,14 @@ transcript
 *.bit
 *.dcp
 *.rbt
+*.mcs
+*.prm
 clockInfo.txt
+vivado/funcsim/
+vivado/build_m1/*.bit
+vivado/build_m1/*.bin
+vivado/experiments/*.bin
+vivado/experiments/*.bit
 
 # Binary output (kecuali golden vectors kecil)
 *.bin

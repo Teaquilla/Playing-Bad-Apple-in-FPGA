@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pytest
 from binarizer import threshold_binarize, otsu_binarize, floyd_steinberg_dither
@@ -50,6 +51,8 @@ def test_aspect_ratio_transform():
 
 def test_extract_sample_frames(tmp_path):
     video_path = "media/Edit] Bad Apple!! but it's 2_1 aspect ratio.mp4"
+    if not os.path.exists(video_path):
+        pytest.skip(f"Berkas video '{video_path}' tidak ditemukan di direktori media/. Uji ekstraksi dilewati.")
     frames, meta = extract_frames(video_path, max_frames=5, aspect_mode="resize_area", threshold=128)
     assert len(frames) == 5
     assert meta["src_fps"] == 30.0
