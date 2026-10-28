@@ -1,0 +1,55 @@
+# Media sumber besar & audio (SPEC aturan 6 & TASKS T-2)
+*.mp4
+*.mkv
+*.avi
+*.webm
+*.mov
+*.wmv
+*.flv
+*.wav
+*.mp3
+*.flac
+*.aac
+*.ogg
+media/
+data/raw/
+data/preview/
+*.raw
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Vivado / EDA tool artifacts
+*.log
+*.jou
+*.str
+*.pb
+*.wdb
+*.vcd
+.Xil/
+xsim.dir/
+work/
+transcript
+*.bit
+*.dcp
+*.rbt
+clockInfo.txt
+
+# Binary output (kecuali golden vectors kecil)
+*.bin
+!data/golden/*.bin
+!data/golden/.gitkeep
+
+# IDE & OS
+.vscode/
+.idea/
+Thumbs.db
+[Dd]esktop.ini

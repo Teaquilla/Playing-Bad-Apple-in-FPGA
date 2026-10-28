@@ -1,0 +1,9 @@
+Dataset,Codec,Frames,Total Bytes,Total Bits,Bits/Frame,KB/s,Rasio,Muat Flash 1.9MB,Muat BRAM 225KB
+"Klip Uji (3 Detik, t=10s)",Raw,90,92160,737280,8192.0,30.00,1.00x,Ya,Ya
+"Klip Uji (3 Detik, t=10s)",RLE Line,90,18279,146232,1624.8,5.95,5.04x,Ya,Ya
+"Klip Uji (3 Detik, t=10s)",XOR-RLE,90,16960,135680,1507.6,5.52,5.43x,Ya,Ya
+Video Penuh (6532 frame),Raw,6532,6688768,53510144,8192.0,30.00,1.00x,Tidak,Tidak
+Video Penuh (6532 frame),RLE Line,6532,1760758,14086064,2156.5,7.90,3.80x,Ya,Tidak
+Video Penuh (6532 frame),XOR-RLE,6532,1728820,13830560,2117.4,7.75,3.87x,Ya,Tidak
+Video Penuh (6532 frame),RLE Elias-Gamma,6532,1799399,14395190,2203.8,8.07,3.72x,Ya,Tidak
+Video Penuh (6532 frame),RLE Nibble-Prefix (4/8 bit),6532,1499557,11996456,1836.6,6.73,4.46x,Ya,Tidak
