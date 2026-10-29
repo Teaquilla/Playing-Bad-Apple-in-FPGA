@@ -101,30 +101,35 @@ begin
         wait for 500 ns;
         assert rx_count = 4 and last_rx_byte = x"ED"
             report "Gagal: byte 4 bukan 0xED" severity error;
+        report "PASS: nominal 921600 baud (4 byte terverifikasi: 55, AA, 5A, ED)";
 
         -- Test 5: Pengirim dengan galat baud -3% (transmisi lebih cepat)
         send_byte(rx, x"3C", BIT_TIME_921K * 97 / 100);
         wait for 500 ns;
         assert rx_count = 5 and last_rx_byte = x"3C"
             report "Gagal pada galat baud -3%: byte 5 bukan 0x3C" severity error;
+        report "PASS: baud error -3% (byte 0x3C terverifikasi)";
 
         -- Test 6: Pengirim dengan galat baud -2% (transmisi lebih cepat)
         send_byte(rx, x"A5", BIT_TIME_921K * 98 / 100);
         wait for 500 ns;
         assert rx_count = 6 and last_rx_byte = x"A5"
             report "Gagal pada galat baud -2%: byte 6 bukan 0xA5" severity error;
+        report "PASS: baud error -2% (byte 0xA5 terverifikasi)";
 
         -- Test 7: Pengirim dengan galat baud +2% (transmisi lebih lambat)
         send_byte(rx, x"C3", BIT_TIME_921K * 102 / 100);
         wait for 500 ns;
         assert rx_count = 7 and last_rx_byte = x"C3"
             report "Gagal pada galat baud +2%: byte 7 bukan 0xC3" severity error;
+        report "PASS: baud error +2% (byte 0xC3 terverifikasi)";
 
         -- Test 8: Pengirim dengan galat baud +3% (transmisi lebih lambat)
         send_byte(rx, x"96", BIT_TIME_921K * 103 / 100);
         wait for 500 ns;
         assert rx_count = 8 and last_rx_byte = x"96"
             report "Gagal pada galat baud +3%: byte 8 bukan 0x96" severity error;
+        report "PASS: baud error +3% (byte 0x96 terverifikasi)";
 
         report "TEST PASSED: tb_uart_rx berhasil memverifikasi penerimaan serial 8N1 nominal dan toleransi galat baud -3%, -2%, +2%, +3%!";
         wait for 100 ns;

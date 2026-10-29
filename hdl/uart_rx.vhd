@@ -74,7 +74,7 @@ begin
                         end if;
 
                     when START_BIT =>
-                        if clk_cnt = HALF_BIT then
+                        if clk_cnt = HALF_BIT - 1 then
                             if rx_sync = '0' then
                                 -- Start bit valid pada titik tengah
                                 clk_cnt <= 0;
@@ -102,7 +102,7 @@ begin
                         end if;
 
                     when STOP_BIT =>
-                        if clk_cnt = HALF_BIT then
+                        if clk_cnt = HALF_BIT - 1 then
                             clk_cnt <= 0;
                             state   <= IDLE;
                             if rx_sync = '1' then

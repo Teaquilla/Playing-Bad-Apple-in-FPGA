@@ -206,8 +206,12 @@ begin
             pkt_cnt := pkt_cnt + 1;
 
             -- Tunggu swap dieksekusi dan sink selesai mentransmisikan ASCII frame ini
-            wait for 500 ns;
-            wait until led_fast(2) = '0'; -- Tunggu sink_busy = 0
+            if led_fast(2) /= '1' then
+                wait until led_fast(2) = '1' for 10 us;
+            end if;
+            if led_fast(2) = '1' then
+                wait until led_fast(2) = '0';
+            end if;
             wait for 200 ns;
         end loop;
         file_close(stream_file);
@@ -259,10 +263,40 @@ begin
         report "Uji 4 Sukses: Paket disisipi byte sampah berhasil diresinkronisasi.";
 
         -- Tunggu penyelesaian uji real-time pendek
-        wait until real_test_done for 50 ms;
+        if not real_test_done then
+            wait until real_test_done for 50 ms;
+        end if;
+        assert real_test_done
+            report "Timeout menunggu penyelesaian uji real-time 921.600 baud!" severity failure;
         report "TEST PASSED: tb_top_stream berhasil memverifikasi seluruh fungsionalitas streaming end-to-end (90 frame byte-exact, vektor galat, dan waktu nyata 921.600 baud)!";
         wait for 100 ns;
         stop;
+    end process;
+
+    -- Monitor penerimaan keluaran UART ASCII dari RsTx_real (1 Frame = 1.059 B pada 921.600 baud)
+    rx_monitor_real : process
+        constant BIT_TIME_921K : time := 1000000000 ns / 921600;
+        variable rx_real_cnt   : integer := 0;
+        variable rx_real_byte  : std_logic_vector(7 downto 0);
+    begin
+        while rx_real_cnt < 1059 loop
+            wait until falling_edge(RsTx_real);
+            wait for BIT_TIME_921K / 2;
+            if RsTx_real = '0' then
+                wait for BIT_TIME_921K;
+                for bit_i in 0 to 7 loop
+                    rx_real_byte(bit_i) := RsTx_real;
+                    wait for BIT_TIME_921K;
+                end loop;
+                if RsTx_real = '1' then
+                    rx_real_cnt := rx_real_cnt + 1;
+                end if;
+            end if;
+        end loop;
+
+        report "Uji 5 Sukses: 1 frame (1.059 byte) ASCII berhasil diterima pada 921.600 baud asli.";
+        real_test_done <= true;
+        wait;
     end process;
 
     -- Stimulus UUT Real: 1 Frame pada 921.600 Baud Asli
@@ -274,8 +308,6 @@ begin
         variable payload_len : integer;
         variable p_byte : std_logic_vector(7 downto 0);
         variable eof_b, chk_b : std_logic_vector(7 downto 0);
-        variable rx_real_cnt : integer := 0;
-        variable rx_real_byte: std_logic_vector(7 downto 0);
     begin
         RsRx_real <= '1';
         wait until btnC = '0';
@@ -315,27 +347,6 @@ begin
         uart_send_byte(RsRx_real, chk_b, BIT_TIME_921K);
 
         file_close(stream_file);
-
-        -- Monitor penerimaan 1.059 byte ASCII dari UUT Real
-        for k in 0 to 1058 loop
-            wait until falling_edge(RsTx_real);
-            wait for BIT_TIME_921K / 2;
-            if RsTx_real = '0' then
-                wait for BIT_TIME_921K;
-                for bit_i in 0 to 7 loop
-                    rx_real_byte(bit_i) := RsTx_real;
-                    wait for BIT_TIME_921K;
-                end loop;
-                if RsTx_real = '1' then
-                    rx_real_cnt := rx_real_cnt + 1;
-                end if;
-            end if;
-        end loop;
-
-        assert rx_real_cnt = 1059
-            report "Jumlah byte ASCII terverifikasi pada 921.600 baud /= 1059!" severity failure;
-        report "Uji 5 Sukses: 1 frame (1.059 byte) ASCII berhasil diterima pada 921.600 baud asli.";
-        real_test_done <= true;
         wait;
     end process;
 end architecture sim;

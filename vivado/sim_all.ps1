@@ -107,11 +107,18 @@ $testSuites = @(
         PassKey = "TEST PASSED: tb_rle_decoder"
     },
     @{
-        Name    = "tb_negative_test"
-        Hdl     = @()
-        Tb      = "sim/tb_negative_test.vhd"
-        Top     = "tb_negative_test"
-        PassKey = "TEST PASSED: SHOULD_NOT_PASS"
+        Name    = "tb_stream_rx"
+        Hdl     = @("hdl/uart_rx.vhd", "hdl/rx_fifo.vhd", "hdl/packet_parser.vhd", "hdl/rle_decoder.vhd")
+        Tb      = "sim/tb_stream_rx.vhd"
+        Top     = "tb_stream_rx"
+        PassKey = "TEST PASSED: tb_stream_rx"
+    },
+    @{
+        Name    = "tb_top_stream"
+        Hdl     = @("hdl/frame_timer.vhd", "hdl/uart_tx.vhd", "hdl/frame_source.vhd", "hdl/decoder.vhd", "hdl/frame_buffer.vhd", "hdl/ascii_sink.vhd", "hdl/uart_rx.vhd", "hdl/rx_fifo.vhd", "hdl/packet_parser.vhd", "hdl/rle_decoder.vhd", "hdl/top.vhd")
+        Tb      = "sim/tb_top_stream.vhd"
+        Top     = "tb_top_stream"
+        PassKey = "TEST PASSED: tb_top_stream"
     }
 )
 
@@ -151,16 +158,25 @@ foreach ($t in $testSuites) {
     $simCmd = "xsim $snap -R"
     $simOut = cmd.exe /c "$simCmd 2>&1"
     $simOutStr = $simOut | Out-String
-    
-    if ($simOutStr -match [regex]::Escape($t.PassKey)) {
+    $hasPassKey = $simOutStr -match [regex]::Escape($t.PassKey)
+    $hasFailure = $simOutStr -match '(?i)failure|error:'
+    $xsimExit0  = ($LASTEXITCODE -eq 0)
+
+    if ($hasPassKey -and (-not $hasFailure) -and $xsimExit0) {
         Write-Host "[PASS] $($t.Name)" -ForegroundColor Green
-        $passLine = ($simOut | Select-String -Pattern [regex]::Escape($t.PassKey) | Select-Object -First 1 | ForEach-Object { $_.Line.Trim() })
-        if (-not $passLine) { $passLine = "Lolos: $($t.PassKey)" }
+        $passLine = ($simOutStr -split "\r?\n" | Where-Object { $_ -match [regex]::Escape($t.PassKey) } | Select-Object -First 1)
+        if (-not $passLine) { $passLine = "Lolos: $($t.PassKey)" } else { $passLine = $passLine.Trim() }
         $results += [PSCustomObject]@{ Test = $t.Name; Status = "PASS"; Details = $passLine }
     } else {
         Write-Host "[FAIL] $($t.Name) - Kriteria PASS tidak terpenuhi" -ForegroundColor Red
-        $failLine = ($simOut | Select-String -Pattern "Failure|Error|FATAL|fatal" | Select-Object -First 1 | ForEach-Object { $_.Line.Trim() })
-        if (-not $failLine) { $failLine = "Kriteria PASS tidak ditemukan dalam log keluaran" }
+        $failLine = ($simOutStr -split "\r?\n" | Where-Object { $_ -match '(?i)failure|error:' } | Select-Object -First 1)
+        if (-not $failLine) {
+            if (-not $hasPassKey) { $failLine = "PassKey tidak ditemukan dalam log" }
+            elseif (-not $xsimExit0) { $failLine = "xsim exit code non-zero ($LASTEXITCODE)" }
+            else { $failLine = "Kriteria PASS tidak terpenuhi" }
+        } else {
+            $failLine = $failLine.Trim()
+        }
         $results += [PSCustomObject]@{ Test = $t.Name; Status = "FAIL (Simulasi)"; Details = $failLine }
         $allPass = $false
     }

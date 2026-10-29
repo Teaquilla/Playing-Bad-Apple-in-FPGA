@@ -58,6 +58,7 @@ architecture rtl of frame_buffer is
     -- Status swap tertunda pada mode streaming
     signal pending_swap       : std_logic := '0';
     signal stream_overrun_reg : std_logic := '0';
+    signal swap_done_reg      : std_logic := '0';
 
     signal wr_ptr : unsigned(9 downto 0) := (others => '0');
 
@@ -67,6 +68,7 @@ begin
     overrun        <= overrun_reg;
     underrun       <= underrun_reg;
     stream_overrun <= stream_overrun_reg;
+    swap_done      <= swap_done_reg;
 
     -- Siap menerima byte baru jika bank belakang BELUM penuh/menunggu swap
     s_axis_ready <= '1' when (streaming_mode = '0' and back_ready = '0') or
@@ -82,12 +84,14 @@ begin
                 back_ready         <= '0';
                 pending_swap       <= '0';
                 stream_overrun_reg <= '0';
+                swap_done_reg      <= '0';
                 wr_ptr             <= (others => '0');
                 overrun_reg        <= '0';
                 underrun_reg       <= '0';
                 rd_data            <= (others => '0');
             else
                 stream_overrun_reg <= '0';  -- Default pulsa 1 siklus
+                swap_done_reg      <= '0';  -- Default pulsa 1 siklus
 
                 if streaming_mode = '0' then
                     ------------------------------------------------------------
@@ -103,11 +107,12 @@ begin
                             underrun_reg <= '1';
                         else
                             -- Kondisi valid: lakukan swap bank seketika
-                            bank_front   <= not bank_front;
-                            back_ready   <= '0';
-                            wr_ptr       <= (others => '0');
-                            overrun_reg  <= '0';
-                            underrun_reg <= '0';
+                            bank_front    <= not bank_front;
+                            back_ready    <= '0';
+                            wr_ptr        <= (others => '0');
+                            overrun_reg   <= '0';
+                            underrun_reg  <= '0';
+                            swap_done_reg <= '1';
                         end if;
                     end if;
 
@@ -147,9 +152,10 @@ begin
                         else
                             if read_busy = '0' then
                                 -- Sink sedang idle: langsung swap seketika!
-                                bank_front   <= not bank_front;
-                                pending_swap <= '0';
-                                wr_ptr       <= (others => '0');
+                                bank_front    <= not bank_front;
+                                pending_swap  <= '0';
+                                wr_ptr        <= (others => '0');
+                                swap_done_reg <= '1';
                             else
                                 -- Sink masih membaca frame sebelumnya: tahan swap sampai idle
                                 pending_swap <= '1';
@@ -157,9 +163,10 @@ begin
                         end if;
                     -- 3. Eksekusi Swap Tertunda Saat Sink Selesai Membaca
                     elsif pending_swap = '1' and read_busy = '0' then
-                        bank_front   <= not bank_front;
-                        pending_swap <= '0';
-                        wr_ptr       <= (others => '0');
+                        bank_front    <= not bank_front;
+                        pending_swap  <= '0';
+                        wr_ptr        <= (others => '0');
+                        swap_done_reg <= '1';
                     end if;
 
                     -- 4. Penulisan Byte dari RLE Decoder ke Bank Belakang
