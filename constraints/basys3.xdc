@@ -11,6 +11,10 @@ create_clock -add -name sys_clk_pin -period 10.00 -waveform {0 5} [get_ports clk
 set_property PACKAGE_PIN U18 [get_ports btnC]
 set_property IOSTANDARD LVCMOS33 [get_ports btnC]
 
+# Switch SW0 (Mode Selector: 0 = M1 BRAM Clip, 1 = M2 PC Streaming)
+set_property PACKAGE_PIN V17 [get_ports {sw[0]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {sw[0]}]
+
 # USB-RS232 Interface
 set_property PACKAGE_PIN B18 [get_ports RsRx]
 set_property IOSTANDARD LVCMOS33 [get_ports RsRx]
@@ -18,7 +22,7 @@ set_property IOSTANDARD LVCMOS33 [get_ports RsRx]
 set_property PACKAGE_PIN A18 [get_ports RsTx]
 set_property IOSTANDARD LVCMOS33 [get_ports RsTx]
 
-# LEDs
+# LEDs (8 LED status)
 set_property PACKAGE_PIN U16 [get_ports {led[0]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {led[0]}]
 
@@ -30,6 +34,18 @@ set_property IOSTANDARD LVCMOS33 [get_ports {led[2]}]
 
 set_property PACKAGE_PIN V19 [get_ports {led[3]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {led[3]}]
+
+set_property PACKAGE_PIN W18 [get_ports {led[4]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {led[4]}]
+
+set_property PACKAGE_PIN U15 [get_ports {led[5]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {led[5]}]
+
+set_property PACKAGE_PIN U14 [get_ports {led[6]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {led[6]}]
+
+set_property PACKAGE_PIN V14 [get_ports {led[7]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {led[7]}]
 
 # Configuration Bank Voltage Select & SPI properties for Basys 3
 set_property CFGBVS VCCO [current_design]

@@ -12,18 +12,22 @@ end entity tb_frame_buffer;
 architecture sim of tb_frame_buffer is
     constant CLK_PERIOD : time := 10 ns;
 
-    signal clk          : std_logic := '0';
-    signal rst          : std_logic := '1';
-    signal swap_req     : std_logic := '0';
-    signal read_busy    : std_logic := '0';
-    signal overrun      : std_logic;
-    signal underrun     : std_logic;
-    signal s_axis_data  : std_logic_vector(7 downto 0) := (others => '0');
-    signal s_axis_valid : std_logic := '0';
-    signal s_axis_ready : std_logic;
-    signal s_axis_last  : std_logic := '0';
-    signal rd_addr      : unsigned(9 downto 0) := (others => '0');
-    signal rd_data      : std_logic_vector(7 downto 0);
+    signal clk            : std_logic := '0';
+    signal rst            : std_logic := '1';
+    signal streaming_mode : std_logic := '0';
+    signal swap_req       : std_logic := '0';
+    signal read_busy      : std_logic := '0';
+    signal overrun        : std_logic;
+    signal underrun       : std_logic;
+    signal stream_valid   : std_logic := '0';
+    signal stream_drop    : std_logic := '0';
+    signal stream_overrun : std_logic;
+    signal s_axis_data    : std_logic_vector(7 downto 0) := (others => '0');
+    signal s_axis_valid   : std_logic := '0';
+    signal s_axis_ready   : std_logic;
+    signal s_axis_last    : std_logic := '0';
+    signal rd_addr        : unsigned(9 downto 0) := (others => '0');
+    signal rd_data        : std_logic_vector(7 downto 0);
 begin
     clk_proc : process
     begin
@@ -40,18 +44,22 @@ begin
             FRAME_BYTES => 1024
         )
         port map (
-            clk          => clk,
-            rst          => rst,
-            swap_req     => swap_req,
-            read_busy    => read_busy,
-            overrun      => overrun,
-            underrun     => underrun,
-            s_axis_data  => s_axis_data,
-            s_axis_valid => s_axis_valid,
-            s_axis_ready => s_axis_ready,
-            s_axis_last  => s_axis_last,
-            rd_addr      => rd_addr,
-            rd_data      => rd_data
+            clk            => clk,
+            rst            => rst,
+            streaming_mode => streaming_mode,
+            swap_req       => swap_req,
+            read_busy      => read_busy,
+            overrun        => overrun,
+            underrun       => underrun,
+            stream_valid   => stream_valid,
+            stream_drop    => stream_drop,
+            stream_overrun => stream_overrun,
+            s_axis_data    => s_axis_data,
+            s_axis_valid   => s_axis_valid,
+            s_axis_ready   => s_axis_ready,
+            s_axis_last    => s_axis_last,
+            rd_addr        => rd_addr,
+            rd_data        => rd_data
         );
 
     stim_proc : process
@@ -143,7 +151,98 @@ begin
         wait until rising_edge(clk);
         assert overrun = '0' report "Overrun tidak di-reset setelah swap berhasil!" severity failure;
 
-        report "TEST PASSED: frame_buffer lolos seluruh uji proteksi swap, underrun, dan overrun." severity note;
+        -- =====================================================================
+        -- PENGUJIAN MODE STREAMING (M2)
+        -- =====================================================================
+        streaming_mode <= '1';
+        wait until rising_edge(clk);
+
+        -- 8. Tulis 1024 byte frame 2 di mode streaming
+        for i in 0 to 1023 loop
+            wait until rising_edge(clk);
+            s_axis_valid <= '1';
+            s_axis_data  <= std_logic_vector(to_unsigned((i + 20) mod 256, 8));
+        end loop;
+        wait until rising_edge(clk);
+        s_axis_valid <= '0';
+
+        -- 9. Uji Delayed Swap: sink masih membaca (read_busy = 1), packet_valid tiba
+        read_busy <= '1';
+        wait until rising_edge(clk);
+        stream_valid <= '1';
+        wait until rising_edge(clk);
+        stream_valid <= '0';
+        wait until rising_edge(clk);
+
+        -- Periksa bahwa bank depan belum bertukar saat sink membaca
+        rd_addr <= to_unsigned(0, 10);
+        wait until rising_edge(clk);
+        wait until rising_edge(clk);
+        assert rd_data = std_logic_vector(to_unsigned(10 mod 256, 8))
+            report "Tearing terdeteksi: bank depan bertukar sebelum sink selesai membaca!" severity failure;
+        report "Uji 4 Sukses: Delayed swap menahan pertukaran bank saat read_busy = 1." severity note;
+
+        -- 10. Selesai membaca (read_busy = 0), verifikasi delayed swap dieksekusi seketika
+        read_busy <= '0';
+        wait until rising_edge(clk);
+        wait until rising_edge(clk);
+        rd_addr <= to_unsigned(0, 10);
+        wait until rising_edge(clk);
+        wait until rising_edge(clk);
+        assert rd_data = std_logic_vector(to_unsigned(20 mod 256, 8))
+            report "Delayed swap gagal mengeksekusi pertukaran bank setelah sink idle!" severity failure;
+        report "Uji 5 Sukses: Delayed swap berhasil mengeksekusi pertukaran setelah sink idle." severity note;
+
+        -- 11. Uji Stream Drop: tulis 512 byte rusak lalu beri pulsa stream_drop
+        for i in 0 to 511 loop
+            wait until rising_edge(clk);
+            s_axis_valid <= '1';
+            s_axis_data  <= x"EE";
+        end loop;
+        wait until rising_edge(clk);
+        s_axis_valid <= '0';
+        stream_drop <= '1';
+        wait until rising_edge(clk);
+        stream_drop <= '0';
+        wait until rising_edge(clk);
+
+        -- Verifikasi bank depan tetap menampilkan frame 2 yang valid
+        rd_addr <= to_unsigned(0, 10);
+        wait until rising_edge(clk);
+        wait until rising_edge(clk);
+        assert rd_data = std_logic_vector(to_unsigned(20 mod 256, 8))
+            report "Frame drop mengganggu bank depan!" severity failure;
+        report "Uji 6 Sukses: Frame rusak dibuang tanpa merusak tampilan frame sebelumnya." severity note;
+
+        -- 12. Uji Streaming Overrun: frame valid tiba saat swap masih tertunda
+        for i in 0 to 1023 loop
+            wait until rising_edge(clk);
+            s_axis_valid <= '1';
+            s_axis_data  <= std_logic_vector(to_unsigned((i + 30) mod 256, 8));
+        end loop;
+        wait until rising_edge(clk);
+        s_axis_valid <= '0';
+
+        read_busy <= '1';
+        wait until rising_edge(clk);
+        stream_valid <= '1'; -- Masuk status pending_swap
+        wait until rising_edge(clk);
+        stream_valid <= '0';
+        wait until rising_edge(clk);
+
+        -- Paket berikutnya tiba saat masih pending_swap
+        stream_valid <= '1';
+        wait until rising_edge(clk);
+        stream_valid <= '0';
+        wait until rising_edge(clk);
+        assert stream_overrun = '1'
+            report "Streaming overrun gagal terdeteksi saat paket baru tiba pada pending swap!" severity failure;
+        report "Uji 7 Sukses: Streaming overrun terdeteksi saat paket tiba pada pending swap." severity note;
+
+        read_busy <= '0';
+        wait until rising_edge(clk);
+
+        report "TEST PASSED: frame_buffer lolos seluruh uji M1 dan M2 (delayed swap, drop, streaming overrun).";
         wait for 50 ns;
         std.env.stop;
     end process;

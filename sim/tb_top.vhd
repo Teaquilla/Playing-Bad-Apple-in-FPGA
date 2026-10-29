@@ -23,11 +23,11 @@ architecture sim of tb_top is
 
     -- Sinyal Mode Dipercepat
     signal RsTx_fast  : std_logic;
-    signal led_fast   : std_logic_vector(3 downto 0);
+    signal led_fast   : std_logic_vector(7 downto 0);
 
     -- Sinyal Mode Waktu Nyata
     signal RsTx_real  : std_logic;
-    signal led_real   : std_logic_vector(3 downto 0);
+    signal led_real   : std_logic_vector(7 downto 0);
 
     signal fast_done  : boolean := false;
     signal real_done  : boolean := false;
