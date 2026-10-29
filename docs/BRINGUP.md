@@ -28,6 +28,18 @@ Get-CimInstance Win32_SerialPort | Select-Object DeviceID, Description
 ```
 *(Contoh keluaran yang diharapkan: `COM3` atau `COM4` dengan deskripsi `USB Serial Port` atau `Digilent USB Device`)* [DIASUMSIKAN].
 
+### Pengaturan Latency Timer Driver FTDI di Windows [DIASUMSIKAN]
+Secara default, driver Virtual COM Port (VCP) FTDI pada Windows menggunakan **Latency Timer = 16 ms**.
+- **Konfigurasi yang Diperlukan:** Ubah Latency Timer ke **1 ms** atau **2 ms** [DIASUMSIKAN, belum diuji di hardware].
+- **Langkah Pengaturan:**
+  1. Buka **Device Manager** (`devmgmt.msc`).
+  2. Buka kategori **Ports (COM & LPT)** $\rightarrow$ klik kanan pada perangkat **USB Serial Port (COMx)** $\rightarrow$ pilih **Properties**.
+  3. Buka tab **Port Settings** $\rightarrow$ klik tombol **Advanced...**.
+  4. Pada kelompok *BM Options*, ubah nilai **Latency Timer (msec)** dari nilai default `16` menjadi **`1`** (atau `2`).
+  5. Klik **OK** dan restart koneksi terminal/skrip Python.
+- **Alasan Teknis Singkat:**
+  Chip FTDI FT2232HQ menahan paket data USB masuk sebelum diserahkan ke sistem operasi sampai buffer penuh (62 byte paket USB) atau batas waktu timer kedaluwarsa. Pada laju 30 FPS (interval frame 33,33 ms), latensi 16 ms menyebabkan penundaan separuh periode frame, memicu *jitter* penyerahan paket dan transmisi berfluktuasi (*bursting*) pada komunikasi serial full-duplex dua arah (streaming RLE ke FPGA dan output ASCII ke terminal PC) [DIASUMSIKAN].
+
 ---
 
 ## 3. Pemrograman Bitstream FPGA

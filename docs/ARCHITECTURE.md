@@ -107,7 +107,21 @@ M1: menghasilkan frame dari klip pendek yang disimpan di BRAM (diinisialisasi da
 Generic: `WIDTH`, `HEIGHT`, `INIT_FILE`, `NUM_FRAMES` (klip berputar kembali ke awal).
 
 ### 4.4 `decoder`
-M1: lurus (byte masuk = byte keluar), supaya jalur data dan antarmuka sudah teruji sebelum kodek ada. M2: dekode kodek terpilih (D-4: RLE per baris 8-bit). Antarmuka masuk-keluar berupa aliran (bagian 3); keluaran selalu format kanonik 1024 byte. Kompleksitas hardware decoder diestimasi sangat hemat: **~30 LUT `[DIASUMSIKAN]`**.
+M1: lurus (byte masuk = byte keluar), supaya jalur data dan antarmuka sudah teruji sebelum kodek ada. M2: dekode kodek terpilih (D-4: RLE per baris 8-bit) dengan antarmuka streaming UART RX sesuai referensi tunggal di `docs/PROTOCOL.md`. Antarmuka masuk-keluar berupa aliran (bagian 3); keluaran selalu format kanonik 1024 byte. Kompleksitas hardware decoder diestimasi sangat hemat: **~40–70 LUT `[DIASUMSIKAN]`**.
+
+### 4.4.1 Modul Penerima Streaming & FIFO RX (M2)
+Pada mode streaming (D-12 opsi b), modul `uart_rx` menerima paket data dari PC dan menyimpannya ke `rx_fifo`.
+- **Ukuran FIFO RX:** Ditetapkan sebesar **2.048 Byte (2 KB)**.
+  - Alasan: Paket maksimum adalah 1.033 Byte ($1024 + 9$). Mekanisme pointer baca spekulatif membutuhkan kapasitas buffer minimal menampung seluruh paket terpanjang ditambah sisa byte sebelumnya untuk memungkinkan operasi rollback saat terjadi galat/sinkron palsu. FIFO 2.048 Byte dipetakan tepat ke dalam **1 primitif Block RAM Artix-7 (1x RAMB18E1, mode 2048x8 atau 0,5 tile BRAM)** `[DIASUMSIKAN]`.
+- **Mekanisme Pointer Komit & Spekulatif:**
+  - `w_ptr`: ditulis oleh output byte serial `uart_rx`.
+  - `r_ptr_spec`: membaca byte secara spekulatif untuk diproses oleh `packet_parser`.
+  - `r_ptr_commit`: hanya dimajukan (`r_ptr_commit <= r_ptr_spec`) setelah paket terbukti valid (`packet_valid = '1'`).
+  - Saat paket galat atau sinkron palsu (`packet_error = '1'`): `r_ptr_spec` dan `r_ptr_commit` dikembalikan ke posisi `r_ptr_sof + 1` (rollback).
+- **Tanpa Flow Control (Hardware/Software):**
+  - Jalur UART tidak memerlukan sinyal flow control RTS/CTS atau software XON/XOFF.
+  - Alasan teknis: PC bertindak sebagai timekeeper utama (D-3) yang menyalurkan frame pada laju 30 FPS (interval 33,33 ms). Pada 921.600 baud, transmisi paket frame terpadat (716 B) hanya memakan waktu 7,77 ms (23,3% dari interval frame). Dekoder hardware di FPGA beroperasi pada 100 MHz dan mengosongkan FIFO RX ke dalam frame buffer dalam waktu kurang dari 0,015 ms (> 500x lebih cepat daripada laju baud UART). Dengan demikian, FIFO RX tidak akan pernah meluap dalam kondisi operasional normal.
+- **Estimasi Sumber Daya Tambahan M2:** **~150–210 LUT dan 0,5 Tile BRAM (1x RAMB18E1) `[DIASUMSIKAN]`**.
 
 ### 4.5 `frame_buffer`
 Double buffer: dua bank masing-masing 1024 byte.
@@ -124,7 +138,8 @@ Double buffer: dua bank masing-masing 1024 byte.
 | `underrun` | out | 1 | `frame_tick` datang saat bank belakang belum lengkap (`back_ready = 0`) |
 
 Aturan:
-- Penulis mengisi bank belakang; saat byte dengan `w_last` diterima dan transfer berhasil, bank itu ditandai lengkap (`back_ready = 1`).
+- Penulis mengisi bank belakang; pada mode klip M1, saat byte dengan `w_last` diterima, bank ditandai lengkap (`back_ready = 1`). Pada mode streaming M2, penandaan `back_ready = 1` ditahan dalam status `PENDING_SWAP` sampai paket lengkap diverifikasi (footer `0xED` dan `checksum` cocok sesuai `docs/PROTOCOL.md`).
+- Jika checksum atau footer salah pada mode streaming: frame yang rusak dibuang (`drop_req`), pointer tulis kembali ke 0, bank depan tetap menampilkan frame lama tanpa tearing/glitch visual, dan register kesalahan hardware `err_checksum_cnt` bertambah 1.
 - Pada pulsa `swap_req`: swap bank hanya dilakukan jika **`back_ready = 1` DAN `read_busy = 0`**.
   - Jika syarat terpenuhi: bank belakang dan depan ditukar, dan `back_ready` kembali 0.
   - Jika `read_busy = 1` saat `swap_req` tiba: swap ditolak. Sink tetap menyelesaikan pembacaan frame lama di bank depan. Bank belakang tetap ditandai penuh (`back_ready = 1`), sehingga `w_ready = 0` dan `frame_source` tertahan (*stall*).

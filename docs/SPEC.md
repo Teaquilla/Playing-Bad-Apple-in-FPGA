@@ -107,7 +107,8 @@ Tahap awal tidak memerlukan kompresi: M1 memakai klip pendek di BRAM. Keputusan 
 
 **Arsitektur Aliran Video Penuh (Streaming PC vs Standalone Flash):**
 - Sesuai keputusan **D-12**, jalur utama adalah **(b) Streaming data RLE dari PC lewat UART RX**. Board Basys 3 hanya menghubungkan pin TX dan RX antara chip FTDI FT2232HQ dan FPGA (tidak ada pin flow-control perangkat keras RTS/CTS ke FPGA, dan kontrol perangkat lunak XON/XOFF tidak digunakan).
-- Pada mode streaming, PC bertindak sebagai **pemegang waktu (timekeeper)** yang mengirim paket frame RLE sesuai laju frame 30 FPS.
+- Pada mode streaming, PC bertindak sebagai **pemegang waktu (timekeeper)** yang mengirim paket frame RLE sesuai laju frame 30 FPS mengikuti format paket resmi di `docs/PROTOCOL.md`.
+- **Format Paket & Buffer RX Streaming (M2):** Format paket streaming didefinisikan secara tunggal di `docs/PROTOCOL.md` (`SOF 0x55 0xAA 0x5A`, `FRAME_ID 2B`, `PAYLOAD_LEN 2B`, `PAYLOAD N B`, `EOF 0xED`, `CHECKSUM 1B`). Sisi penerima FPGA mengalokasikan **FIFO RX sebesar 2.048 Byte (2 KB)** menggunakan 1x RAMB18E1 (0,5 tile BRAM) `[DIASUMSIKAN]`, yang mampu menampung seluruh paket maksimum teoretis (1.033 B) dan mendukung mekanisme pointer baca spekulatif dengan pembatalan (rollback). Komunikasi berjalan secara simpleks tanpa flow control (RTS/CTS / XON/XOFF) karena dekoder FPGA menguras FIFO dalam < 0,015 ms, jauh lebih cepat daripada laju transmisi UART (7,77 ms per paket).
 - Karena satu antarmuka UART fisik membawa data masuk (RLE ke FPGA RX) dan data keluar (ASCII dari FPGA TX), dibutuhkan **skrip host Python** yang berjalan *full-duplex* untuk mengirim data frame terkompresi secara periodik sekaligus membaca dan menampilkan karakter ASCII ke terminal.
 - Opsi **(a) Standalone dari flash onboard** ditutup sebagai target lanjutan (D-9) jika seluruh fungsionalitas streaming telah selesai dan diverifikasi.
 

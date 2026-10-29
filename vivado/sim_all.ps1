@@ -77,6 +77,41 @@ $testSuites = @(
         Tb      = "sim/tb_top.vhd"
         Top     = "tb_top"
         PassKey = "TEST PASSED: tb_top berhasil memverifikasi kedua mode"
+    },
+    @{
+        Name    = "tb_uart_rx"
+        Hdl     = @("hdl/uart_rx.vhd")
+        Tb      = "sim/tb_uart_rx.vhd"
+        Top     = "tb_uart_rx"
+        PassKey = "TEST PASSED: tb_uart_rx"
+    },
+    @{
+        Name    = "tb_rx_fifo"
+        Hdl     = @("hdl/rx_fifo.vhd")
+        Tb      = "sim/tb_rx_fifo.vhd"
+        Top     = "tb_rx_fifo"
+        PassKey = "TEST PASSED: tb_rx_fifo"
+    },
+    @{
+        Name    = "tb_packet_parser"
+        Hdl     = @("hdl/rx_fifo.vhd", "hdl/packet_parser.vhd")
+        Tb      = "sim/tb_packet_parser.vhd"
+        Top     = "tb_packet_parser"
+        PassKey = "TEST PASSED: tb_packet_parser"
+    },
+    @{
+        Name    = "tb_rle_decoder"
+        Hdl     = @("hdl/rle_decoder.vhd")
+        Tb      = "sim/tb_rle_decoder.vhd"
+        Top     = "tb_rle_decoder"
+        PassKey = "TEST PASSED: tb_rle_decoder"
+    },
+    @{
+        Name    = "tb_negative_test"
+        Hdl     = @()
+        Tb      = "sim/tb_negative_test.vhd"
+        Top     = "tb_negative_test"
+        PassKey = "TEST PASSED: SHOULD_NOT_PASS"
     }
 )
 
@@ -119,10 +154,14 @@ foreach ($t in $testSuites) {
     
     if ($simOutStr -match [regex]::Escape($t.PassKey)) {
         Write-Host "[PASS] $($t.Name)" -ForegroundColor Green
-        $results += [PSCustomObject]@{ Test = $t.Name; Status = "PASS"; Details = "Kriteria lolos terverifikasi" }
+        $passLine = ($simOut | Select-String -Pattern [regex]::Escape($t.PassKey) | Select-Object -First 1 | ForEach-Object { $_.Line.Trim() })
+        if (-not $passLine) { $passLine = "Lolos: $($t.PassKey)" }
+        $results += [PSCustomObject]@{ Test = $t.Name; Status = "PASS"; Details = $passLine }
     } else {
         Write-Host "[FAIL] $($t.Name) - Kriteria PASS tidak terpenuhi" -ForegroundColor Red
-        $results += [PSCustomObject]@{ Test = $t.Name; Status = "FAIL (Simulasi)"; Details = ($simOut | Select-String "Failure|Error" | Out-String).Trim() }
+        $failLine = ($simOut | Select-String -Pattern "Failure|Error|FATAL|fatal" | Select-Object -First 1 | ForEach-Object { $_.Line.Trim() })
+        if (-not $failLine) { $failLine = "Kriteria PASS tidak ditemukan dalam log keluaran" }
+        $results += [PSCustomObject]@{ Test = $t.Name; Status = "FAIL (Simulasi)"; Details = $failLine }
         $allPass = $false
     }
 }

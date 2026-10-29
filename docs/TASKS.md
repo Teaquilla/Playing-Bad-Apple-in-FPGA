@@ -58,17 +58,19 @@ Legenda status: `[ ]` belum, `[~]` berjalan, `[x]` selesai dan terverifikasi.
 
 ---
 
-## M2: Decoder HDL
+## M2: Streaming UART RX dari PC & Dekoder RLE (M2a: Jalur Data Penerima; M2b: Integrasi Top)
 
 | ID | Tugas | Verifikasi | Status |
 |---|---|---|---|
-| T2.1 | Riset implementasi decoder hardware untuk codec terpilih (D-4); perbarui ARCHITECTURE | Ringkasan di `RESEARCH.md` memakai format yang diminta SPEC bagian 10 | [ ] |
-| T2.2 | Finalisasi encoder Python dan kontainer file (header) | Tes round-trip; format tercatat di ARCHITECTURE | [ ] |
-| T2.3 | `decoder` HDL dan testbench | Bit-exact terhadap golden untuk seluruh frame (atau subset yang disepakati) | [ ] |
-| T2.4 | Integrasi dengan sumber data (BRAM klip lebih panjang) | Simulasi end-to-end lulus | [ ] |
-| T2.5 | Laporan sumber daya dan timing | Dilampirkan | [ ] |
-| T2.6 | **GATE:** putuskan apakah standalone dari flash masuk target (D-9) | Dicatat | [ ] |
-| T2.7 | (Jika disetujui) Riset akses flash QSPI Artix-7 dan prototipe pembaca | Hasil riset dan uji di hardware | [ ] |
+| T2.1 | `stream_encoder.py` (protokol paket, evaluasi stream, manifest `stream_expected.txt`, batasan format `PAYLOAD_LEN_MAX = 1024`, deteksi galat) | 36 unit test pytest lulus (100% PASS); manifest terverifikasi bit-exact | [x] |
+| T2.2 | `uart_rx` dan `tb_uart_rx` (sinkronisasi 2-FF, mid-bit sampling, baud 921.600) | `tb_uart_rx` PASS; Sintesis OOC: 30 LUTs (0,14%), 31 FFs (0,07%), 0 BRAM | [x] |
+| T2.3 | `rx_fifo` dan `tb_rx_fifo` (FIFO 2 KB, 1x RAMB18E1, pointer komit & spekulatif) | `tb_rx_fifo` PASS; Sintesis OOC: 56 LUTs (0,27%), 45 FFs (0,11%), 0,5 BRAM Tile (1x RAMB18E1) | [x] |
+| T2.4 | `packet_parser` dan `tb_packet_parser` (FSM HUNT, HDR, PAYLOAD, EOF, CHK, validasi format, timeout watchdog) | `tb_packet_parser` PASS; Sintesis OOC: 133 LUTs (0,64%), 182 FFs (0,44%), 0 BRAM | [x] |
+| T2.5 | `rle_decoder` dan `tb_rle_decoder` (ekspansi RLE 8-bit ke 1.024 byte kanonik, deteksi run overflow & length error) | `tb_rle_decoder` PASS; Sintesis OOC: 155 LUTs (0,75%), 62 FFs (0,15%), 0 BRAM | [x] |
+| T2.6 | Testbench gabungan `tb_stream_rx` (`uart_rx` $\rightarrow$ `rx_fifo` $\rightarrow$ `packet_parser` $\rightarrow$ `rle_decoder`) | `tb_stream_rx` PASS: 90 frame byte-exact vs `frames.bin` (0 ketidakcocokan); vektor galat checksum, truncation timeout, dan run overflow 100% cocok vs `stream_expected.txt` | [x] |
+| T2.7 | Integrasi ke `top.vhd` (`STREAMING_MODE`, `frame_buffer` swap tertunda, mux sumber data) | Belum diintegrasikan ke top (direncanakan prompt berikutnya); `hdl/top.vhd` tetap utuh | [ ] |
+| T2.8 | Skrip host pengirim PC `python/stream_player.py` (transmisi frame 30 FPS simultan dengan pembacaan terminal) | Direncanakan prompt berikutnya | [ ] |
+| T2.9 | Pengujian streaming video penuh 6.532 frame di board fisik Basys 3 | Menunggu integrasi M2b dan ketersediaan hardware | [ ] (menunggu board) |
 
 ---
 

@@ -50,9 +50,11 @@ vivado/build_m1/*.bin
 vivado/experiments/*.bin
 vivado/experiments/*.bit
 
-# Binary output (kecuali golden vectors kecil)
+# Binary & Vivado output (kecuali golden vectors)
 *.bin
 !data/golden/*.bin
+!data/golden/*.hex
+!data/golden/*.txt
 !data/golden/.gitkeep
 
 # IDE & OS
