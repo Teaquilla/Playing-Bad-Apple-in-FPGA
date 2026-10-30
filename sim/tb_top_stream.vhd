@@ -53,9 +53,22 @@ architecture sim of tb_top_stream is
         wait for bit_period;
     end procedure;
 
-    signal rx_byte_cnt : integer := 0;
-    signal rx_mismatch : integer := 0;
+    signal rx_byte_cnt    : integer := 0;
+    signal rx_mismatch    : integer := 0;
     signal stream_90_done : boolean := false;
+
+    signal uji3_start     : boolean := false;
+    signal uji3_byte_cnt  : integer := 0;
+    signal uji3_mismatch  : integer := 0;
+    signal uji3_done      : boolean := false;
+
+    signal uji4_start     : boolean := false;
+    signal uji4_byte_cnt  : integer := 0;
+    signal uji4_mismatch  : integer := 0;
+    signal uji4_done      : boolean := false;
+
+    signal real_byte_cnt  : integer := 0;
+    signal real_mismatch  : integer := 0;
     signal real_test_done : boolean := false;
 begin
     -- Generator Clock 100 MHz
@@ -147,6 +160,88 @@ begin
         wait;
     end process;
 
+    -- Monitor penerimaan keluaran UART ASCII dari RsTx_fast untuk Frame 0 pada Uji 3
+    rx_monitor_uji3 : process
+        constant BIT_TIME_25M : time := 40 ns;
+        file gold_file : text;
+        variable gold_line : line;
+        variable gold_byte : std_logic_vector(7 downto 0);
+        variable rx_val : std_logic_vector(7 downto 0);
+        variable cnt : integer := 0;
+        variable mism : integer := 0;
+    begin
+        wait until uji3_start;
+        file_open(gold_file, "data/golden/ascii.hex", read_mode);
+        while cnt < 1059 loop
+            wait until falling_edge(RsTx_fast);
+            wait for BIT_TIME_25M / 2;
+            if RsTx_fast = '0' then
+                wait for BIT_TIME_25M;
+                for bit_i in 0 to 7 loop
+                    rx_val(bit_i) := RsTx_fast;
+                    wait for BIT_TIME_25M;
+                end loop;
+                if RsTx_fast = '1' then
+                    cnt := cnt + 1;
+                    if not endfile(gold_file) then
+                        readline(gold_file, gold_line);
+                        hread(gold_line, gold_byte);
+                        if rx_val /= gold_byte then
+                            mism := mism + 1;
+                        end if;
+                    end if;
+                end if;
+            end if;
+        end loop;
+        file_close(gold_file);
+
+        uji3_byte_cnt <= cnt;
+        uji3_mismatch <= mism;
+        uji3_done     <= true;
+        wait;
+    end process;
+
+    -- Monitor penerimaan keluaran UART ASCII dari RsTx_fast untuk Frame 0 pada Uji 4
+    rx_monitor_uji4 : process
+        constant BIT_TIME_25M : time := 40 ns;
+        file gold_file : text;
+        variable gold_line : line;
+        variable gold_byte : std_logic_vector(7 downto 0);
+        variable rx_val : std_logic_vector(7 downto 0);
+        variable cnt : integer := 0;
+        variable mism : integer := 0;
+    begin
+        wait until uji4_start;
+        file_open(gold_file, "data/golden/ascii.hex", read_mode);
+        while cnt < 1059 loop
+            wait until falling_edge(RsTx_fast);
+            wait for BIT_TIME_25M / 2;
+            if RsTx_fast = '0' then
+                wait for BIT_TIME_25M;
+                for bit_i in 0 to 7 loop
+                    rx_val(bit_i) := RsTx_fast;
+                    wait for BIT_TIME_25M;
+                end loop;
+                if RsTx_fast = '1' then
+                    cnt := cnt + 1;
+                    if not endfile(gold_file) then
+                        readline(gold_file, gold_line);
+                        hread(gold_line, gold_byte);
+                        if rx_val /= gold_byte then
+                            mism := mism + 1;
+                        end if;
+                    end if;
+                end if;
+            end if;
+        end loop;
+        file_close(gold_file);
+
+        uji4_byte_cnt <= cnt;
+        uji4_mismatch <= mism;
+        uji4_done     <= true;
+        wait;
+    end process;
+
     -- Stimulus Utama: Pengujian UUT Fast (90 Frame & Vektor Galat)
     stim_proc_fast : process
         constant BIT_TIME_25M : time := 40 ns;
@@ -157,6 +252,10 @@ begin
         variable p_byte : std_logic_vector(7 downto 0);
         variable eof_b, chk_b : std_logic_vector(7 downto 0);
         variable pkt_cnt : integer := 0;
+        alias err_chk_cnt_fast is << signal .tb_top_stream.uut_fast.err_checksum_cnt : unsigned(15 downto 0) >>;
+        alias fb_swap_done_fast is << signal .tb_top_stream.uut_fast.fb_swap_done : std_logic >>;
+        variable err_chk_before : integer;
+        variable rx_cnt_before  : integer;
     begin
         -- 1. Reset
         btnC      <= '1';
@@ -226,6 +325,9 @@ begin
 
         -- 2. Uji Vektor Galat Checksum: stream_corrupt_checksum.hex
         report "=== [TB_TOP_STREAM] Uji 2: Umpankan stream_corrupt_checksum.hex ===";
+        err_chk_before := to_integer(err_chk_cnt_fast);
+        rx_cnt_before  := rx_byte_cnt;
+
         file_open(stream_file, "data/golden/stream_corrupt_checksum.hex", read_mode);
         while not endfile(stream_file) loop
             readline(stream_file, stream_line);
@@ -234,40 +336,70 @@ begin
         end loop;
         file_close(stream_file);
         wait for 10 us;
+
+        assert to_integer(err_chk_cnt_fast) = err_chk_before + 1
+            report "cnt_chk_errors tidak bertambah 1 setelah stream_corrupt_checksum!" severity failure;
         assert led_fast(5) = '1'
             report "LED(5) galat checksum tidak aktif setelah paket checksum korup!" severity failure;
-        report "Uji 2 Sukses: Paket checksum korup ditolak, LED5 aktif.";
+        assert rx_byte_cnt = rx_cnt_before
+            report "ascii_sink mentransmisikan data saat paket korup (frame_buffer swap ilegal)!" severity failure;
+        report "Uji 2 Sukses: Paket checksum korup ditolak, err_chk_cnt bertambah 1, frame_buffer tidak swap, LED5 aktif.";
 
-        -- 3. Uji Vektor False SOF: stream_false_sof.hex
+        -- 3. Uji Vektor False SOF: stream_false_sof.hex (fake SOF + Frame 0 = 372 byte)
         report "=== [TB_TOP_STREAM] Uji 3: Umpankan stream_false_sof.hex ===";
+        uji3_start <= true;
         file_open(stream_file, "data/golden/stream_false_sof.hex", read_mode);
-        while not endfile(stream_file) loop
+        for i in 1 to 372 loop
             readline(stream_file, stream_line);
             hread(stream_line, p_byte);
             uart_send_byte(RsRx_fast, p_byte, BIT_TIME_25M);
         end loop;
         file_close(stream_file);
-        wait for 10 us;
-        report "Uji 3 Sukses: Paket false SOF berhasil diresinkronisasi tanpa macet.";
+        if not uji3_done then
+            wait until uji3_done for 5 ms;
+        end if;
+        assert uji3_done
+            report "Timeout menunggu 1.059 byte Frame 0 ASCII pada Uji 3!" severity failure;
+        assert uji3_mismatch = 0
+            report "Ada ketidakcocokan byte ASCII pada Uji 3 terhadap Frame 0 ascii.hex!" severity failure;
+        if led_fast(2) = '1' then
+            wait until led_fast(2) = '0';
+        end if;
+        wait for 1 us;
+        report "Uji 3 Sukses: Paket false SOF berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B)!";
 
-        -- 4. Uji Vektor Byte Insertion: stream_byte_insertion.hex
+        -- 4. Uji Vektor Byte Insertion: stream_byte_insertion.hex (garbage 6B + Frame 0 347B = 353 byte)
         report "=== [TB_TOP_STREAM] Uji 4: Umpankan stream_byte_insertion.hex ===";
+        uji4_start <= true;
         file_open(stream_file, "data/golden/stream_byte_insertion.hex", read_mode);
-        while not endfile(stream_file) loop
+        for i in 1 to 353 loop
             readline(stream_file, stream_line);
             hread(stream_line, p_byte);
             uart_send_byte(RsRx_fast, p_byte, BIT_TIME_25M);
         end loop;
         file_close(stream_file);
-        wait for 10 us;
-        report "Uji 4 Sukses: Paket disisipi byte sampah berhasil diresinkronisasi.";
+        if not uji4_done then
+            wait until uji4_done for 5 ms;
+        end if;
+        assert uji4_done
+            report "Timeout menunggu 1.059 byte Frame 0 ASCII pada Uji 4!" severity failure;
+        assert uji4_mismatch = 0
+            report "Ada ketidakcocokan byte ASCII pada Uji 4 terhadap Frame 0 ascii.hex!" severity failure;
+        if led_fast(2) = '1' then
+            wait until led_fast(2) = '0';
+        end if;
+        wait for 1 us;
+        report "Uji 4 Sukses: Paket disisipi byte sampah berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B)!";
 
-        -- Tunggu penyelesaian uji real-time pendek
+        -- Tunggu penyelesaian uji real-time pendek (921.600 baud)
         if not real_test_done then
             wait until real_test_done for 50 ms;
         end if;
         assert real_test_done
             report "Timeout menunggu penyelesaian uji real-time 921.600 baud!" severity failure;
+        assert real_mismatch = 0
+            report "Ada ketidakcocokan byte ASCII pada Uji 5 terhadap Frame 0 ascii.hex pada 921.600 baud!" severity failure;
+        report "Uji 5 Sukses: 1 frame (1.059 byte) ASCII cocok 100% byte-exact pada 921.600 baud asli.";
         report "TEST PASSED: tb_top_stream berhasil memverifikasi seluruh fungsionalitas streaming end-to-end (90 frame byte-exact, vektor galat, dan waktu nyata 921.600 baud)!";
         wait for 100 ns;
         stop;
@@ -276,9 +408,14 @@ begin
     -- Monitor penerimaan keluaran UART ASCII dari RsTx_real (1 Frame = 1.059 B pada 921.600 baud)
     rx_monitor_real : process
         constant BIT_TIME_921K : time := 1000000000 ns / 921600;
+        file gold_file : text;
+        variable gold_line : line;
+        variable gold_byte : std_logic_vector(7 downto 0);
         variable rx_real_cnt   : integer := 0;
         variable rx_real_byte  : std_logic_vector(7 downto 0);
+        variable mism          : integer := 0;
     begin
+        file_open(gold_file, "data/golden/ascii.hex", read_mode);
         while rx_real_cnt < 1059 loop
             wait until falling_edge(RsTx_real);
             wait for BIT_TIME_921K / 2;
@@ -290,11 +427,20 @@ begin
                 end loop;
                 if RsTx_real = '1' then
                     rx_real_cnt := rx_real_cnt + 1;
+                    if not endfile(gold_file) then
+                        readline(gold_file, gold_line);
+                        hread(gold_line, gold_byte);
+                        if rx_real_byte /= gold_byte then
+                            mism := mism + 1;
+                        end if;
+                    end if;
                 end if;
             end if;
         end loop;
+        file_close(gold_file);
 
-        report "Uji 5 Sukses: 1 frame (1.059 byte) ASCII berhasil diterima pada 921.600 baud asli.";
+        real_byte_cnt  <= rx_real_cnt;
+        real_mismatch  <= mism;
         real_test_done <= true;
         wait;
     end process;

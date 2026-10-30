@@ -5,6 +5,8 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
+use std.textio.all;
+use ieee.std_logic_textio.all;
 use std.env.all;
 
 entity tb_uart_rx is
@@ -17,6 +19,11 @@ architecture sim of tb_uart_rx is
     signal rx      : std_logic := '1';
     signal m_data  : std_logic_vector(7 downto 0);
     signal m_valid : std_logic;
+
+    signal rx_fast       : std_logic := '1';
+    signal m_data_fast   : std_logic_vector(7 downto 0);
+    signal m_valid_fast  : std_logic;
+    signal rx_count_fast : integer := 0;
 
     signal rx_count : integer := 0;
     signal last_rx_byte : std_logic_vector(7 downto 0) := (others => '0');
@@ -57,6 +64,29 @@ begin
             m_valid => m_valid
         );
 
+    dut_fast : entity work.uart_rx
+        generic map (
+            CLK_FREQ_HZ => 100_000_000,
+            BAUD_RATE   => 25_000_000
+        )
+        port map (
+            clk     => clk,
+            rst     => rst,
+            rx      => rx_fast,
+            m_data  => m_data_fast,
+            m_valid => m_valid_fast
+        );
+
+    -- Monitor penerimaan byte 25 MHz
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if m_valid_fast = '1' then
+                rx_count_fast <= rx_count_fast + 1;
+            end if;
+        end if;
+    end process;
+
     -- Monitor penerimaan byte konkuren
     process(clk)
     begin
@@ -70,6 +100,9 @@ begin
 
     stim_proc : process
         constant BIT_TIME_921K : time := 1000000000 ns / 921600; -- ~1085.069 ns
+        file f_corrupt : text;
+        variable f_line : line;
+        variable f_byte : std_logic_vector(7 downto 0);
     begin
         -- Reset
         rst <= '1';
@@ -130,6 +163,23 @@ begin
         assert rx_count = 8 and last_rx_byte = x"96"
             report "Gagal pada galat baud +3%: byte 8 bukan 0x96" severity error;
         report "PASS: baud error +3% (byte 0x96 terverifikasi)";
+
+        -- Test 9: Uji Regresi High-Speed Baud (25 MHz) Back-to-Back (verifikasi perbaikan HALF_BIT - 1)
+        -- Pada versi m2a-boardless (clk_cnt = HALF_BIT), cuplikan start & stop bit pada 25 MHz
+        -- (CLKS_PER_BIT=4, HALF_BIT=2) memakan 3 siklus (75% bit window). Akibatnya cuplikan stop bit
+        -- bergeser dan menabrak start bit paket berikutnya saat transmisi back-to-back tanpa celah (gap).
+        -- Saat stop bit tersampel '0', byte dibuang tanpa assert m_valid.
+        -- Perbaikan (clk_cnt = HALF_BIT - 1) memastikan pencuplikan tepat di 50% (2 siklus clock).
+        wait until rising_edge(clk);
+        wait for 5 ns; -- offset fasa 5 ns (jatuh di falling edge clock)
+        send_byte(rx_fast, x"55", 40 ns);
+        send_byte(rx_fast, x"AA", 40 ns);
+        send_byte(rx_fast, x"5A", 40 ns);
+        send_byte(rx_fast, x"00", 40 ns);
+        wait for 300 ns;
+        assert rx_count_fast = 4
+            report "Gagal pada uji regresi 25 MHz back-to-back: byte dibuang (rx_count_fast = " & integer'image(rx_count_fast) & " /= 4)!" severity failure;
+        report "PASS: high-speed 25 MHz back-to-back (4 byte terverifikasi: 55, AA, 5A, 00)";
 
         report "TEST PASSED: tb_uart_rx berhasil memverifikasi penerimaan serial 8N1 nominal dan toleransi galat baud -3%, -2%, +2%, +3%!";
         wait for 100 ns;
