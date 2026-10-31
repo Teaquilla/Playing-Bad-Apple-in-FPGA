@@ -74,7 +74,19 @@ architecture sim of tb_top_stream is
     signal real_byte_cnt  : integer := 0;
     signal real_mismatch  : integer := 0;
     signal real_test_done : boolean := false;
+    signal rle_err_run_cnt: integer := 0;
+    alias rle_err_run_fast is << signal .tb_top_stream.uut_fast.rle_err_run : std_logic >>;
 begin
+    -- Monitor akumulasi galat run RLE
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if rle_err_run_fast = '1' then
+                rle_err_run_cnt <= rle_err_run_cnt + 1;
+            end if;
+        end if;
+    end process;
+
     -- Generator Clock 100 MHz
     clk_gen : process
     begin
@@ -398,7 +410,20 @@ begin
             wait until led_fast(2) = '0';
         end if;
         wait for 1 us;
-        report "Uji 3 Sukses: Paket false SOF berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B, tanpa byte ekstra)!";
+        -- Verifikasi metrik stream_expected.txt untuk stream_false_sof:
+        -- VALID_FRAMES bertambah 1 (Frame 0), LENGTH_ERRORS bertambah 1 (false SOF terdeteksi via length/timeout err),
+        -- CHECKSUM_ERRORS tetap 1, RUN_ERRORS tetap 0, RESYNCS bertambah (resync SOF asli).
+        assert to_integer(val_cnt_fast) = 91
+            report "Uji 3: valid_frames bukan 91 (terbaca: " & integer'image(to_integer(val_cnt_fast)) & ")!" severity failure;
+        assert to_integer(err_chk_cnt_fast) = 1
+            report "Uji 3: chk_errors bukan 1 (terbaca: " & integer'image(to_integer(err_chk_cnt_fast)) & ")!" severity failure;
+        assert to_integer(err_len_cnt_fast) = 1
+            report "Uji 3: len_errors bukan 1 (terbaca: " & integer'image(to_integer(err_len_cnt_fast)) & ")!" severity failure;
+        assert rle_err_run_cnt = 0
+            report "Uji 3: run_errors bukan 0!" severity failure;
+        assert to_integer(err_res_cnt_fast) >= 2
+            report "Uji 3: resyncs kurang dari 2 (terbaca: " & integer'image(to_integer(err_res_cnt_fast)) & ")!" severity failure;
+        report "Uji 3 Sukses: Paket false SOF berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B, val=91, chk=1, len=1, run=0, res>=2)!";
 
         -- 4. Uji Vektor Byte Insertion: stream_byte_insertion.hex (garbage 6B + Frame 0 347B = 353 byte)
         report "=== [TB_TOP_STREAM] Uji 4: Umpankan stream_byte_insertion.hex ===";
@@ -426,7 +451,20 @@ begin
             wait until led_fast(2) = '0';
         end if;
         wait for 1 us;
-        report "Uji 4 Sukses: Paket disisipi byte sampah berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B, tanpa byte ekstra)!";
+        -- Verifikasi metrik stream_expected.txt untuk stream_byte_insertion:
+        -- VALID_FRAMES bertambah 1 (Frame 0), RESYNCS bertambah 1 (sampah 6B sebelum SOF),
+        -- CHECKSUM_ERRORS tetap 1, LENGTH_ERRORS tetap 1, RUN_ERRORS tetap 0.
+        assert to_integer(val_cnt_fast) = 92
+            report "Uji 4: valid_frames bukan 92 (terbaca: " & integer'image(to_integer(val_cnt_fast)) & ")!" severity failure;
+        assert to_integer(err_chk_cnt_fast) = 1
+            report "Uji 4: chk_errors bukan 1!" severity failure;
+        assert to_integer(err_len_cnt_fast) = 1
+            report "Uji 4: len_errors bukan 1!" severity failure;
+        assert rle_err_run_cnt = 0
+            report "Uji 4: run_errors bukan 0!" severity failure;
+        assert to_integer(err_res_cnt_fast) = 4
+            report "Uji 4: resyncs bukan 4 (terbaca: " & integer'image(to_integer(err_res_cnt_fast)) & ")!" severity failure;
+        report "Uji 4 Sukses: Paket disisipi byte sampah berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B, val=92, chk=1, len=1, run=0, res=4)!";
 
         -- Tunggu penyelesaian uji real-time pendek (921.600 baud)
         if not real_test_done then
