@@ -171,11 +171,11 @@ begin
         -- Saat stop bit tersampel '0', byte dibuang tanpa assert m_valid.
         -- Perbaikan (clk_cnt = HALF_BIT - 1) memastikan pencuplikan tepat di 50% (2 siklus clock).
         wait until rising_edge(clk);
-        wait for 5 ns; -- offset fasa 5 ns (jatuh di falling edge clock)
-        send_byte(rx_fast, x"55", 40 ns);
-        send_byte(rx_fast, x"AA", 40 ns);
-        send_byte(rx_fast, x"5A", 40 ns);
-        send_byte(rx_fast, x"00", 40 ns);
+        wait for 8 ns;
+        send_byte(rx_fast, x"55", 38 ns);
+        send_byte(rx_fast, x"AA", 38 ns);
+        send_byte(rx_fast, x"5A", 38 ns);
+        send_byte(rx_fast, x"00", 38 ns);
         wait for 300 ns;
         assert rx_count_fast = 4
             report "Gagal pada uji regresi 25 MHz back-to-back: byte dibuang (rx_count_fast = " & integer'image(rx_count_fast) & " /= 4)!" severity failure;
