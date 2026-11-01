@@ -117,11 +117,17 @@ Untuk memvalidasi pemutaran video streaming dari PC ke FPGA Basys 3:
    .\.venv\Scripts\python.exe python/stream_player.py --port COM3 --baud 921600 --clip data/golden/stream_clip.bin --fps 30 --av-offset-ms 0 --no-audio
    ```
    *(Ganti `COM3` dengan nomor port COM fisik yang terdeteksi)*.
+   - **Parameter `--av-offset-ms`:** Nilai offset audio/video dalam milidetik. Nilai positif berarti video dikirim lebih lambat dari jam acuan (default: `0` ms `[DIASUMSIKAN]`).
+   - **Opsi Penyimpanan & Tampilan:**
+     - Simpan rekaman mentah ASCII ke file: tambahkan `--ascii-out stream_run.bin`.
+     - Matikan tampilan animasi di terminal: tambahkan `--no-display`.
 
 ### Hasil yang Diharapkan [DIASUMSIKAN]:
 - Skrip mengirimkan seluruh 90 frame klip paket RLE pada laju 30 FPS.
 - Thread pembaca simultan menangkap aliran byte ASCII dari pin RsTx (~31,8 KB/s) tanpa lagging atau deadlock.
 - Terminal menampilkan animasi ASCII 128×64 tanpa tearing (buffer swap tertunda hanya terjadi saat frame baru valid).
+  > [!NOTE]
+  > Dukungan dan kelancaran rendering escape sequence ANSI (`\x1b[H` / `ESC [ H`) di Windows Terminal atau terminal emulator lainnya berstatus **`[DIASUMSIKAN]`** sampai diverifikasi langsung pada hardware dan terminal riil.
 - Pada ringkasan akhir: `Total Frame: 90`, `Frame Terkirim: 90`, `Frame Dibuang: 0`, `Byte Diterima: 95310`.
 
 ---

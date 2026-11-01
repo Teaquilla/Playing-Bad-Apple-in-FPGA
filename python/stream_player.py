@@ -127,8 +127,13 @@ class FakeTransport(Transport):
     def write(self, data: bytes) -> None:
         if self._closed:
             raise RuntimeError("Transport sudah ditutup")
-        with self._lock:
+        acquired = self._lock.acquire(timeout=1.0)
+        if not acquired:
+            raise TimeoutError("Deadlock: timeout 1.0 detik terlampaui saat menunggu lock transport")
+        try:
             self._tx_bytes.extend(data)
+        finally:
+            self._lock.release()
         if self.fake_fpga is not None:
             self.fake_fpga.receive_bytes(data)
 
@@ -234,13 +239,37 @@ class FakeFPGA:
         self.valid_frames_count: int = 0
         self.checksum_errors: int = 0
         self.length_errors: int = 0
+        self.run_errors: int = 0
         self.resyncs_count: int = 0
+        self.received_fids: List[int] = []
+
+    def reset(self) -> None:
+        """Mereset seluruh status dan penghitung FakeFPGA."""
+        with self._lock:
+            self._rx_buf.clear()
+            self._output_ascii.clear()
+            self.valid_frames_count = 0
+            self.checksum_errors = 0
+            self.length_errors = 0
+            self.run_errors = 0
+            self.resyncs_count = 0
+            self.received_fids.clear()
 
     def receive_bytes(self, data: bytes) -> None:
         """Menerima aliran byte dari transport dan memproses paket secara bertahap."""
         with self._lock:
             self._rx_buf.extend(data)
             self._process_buffer()
+
+    def finish(self) -> None:
+        """Menandakan akhir transmisi stream dan memeriksa apakah ada paket terpotong di buffer."""
+        with self._lock:
+            if len(self._rx_buf) > 0:
+                sof_pos = self._rx_buf.find(SOF_MARKER)
+                if sof_pos != -1:
+                    # Paket terpotong (truncated)
+                    self.length_errors += 1
+                self._rx_buf.clear()
 
     def _process_buffer(self) -> None:
         """Mengurai paket sesuai aturan PROTOCOL.md dengan dukungan resinkronisasi spekulatif."""
@@ -300,7 +329,6 @@ class FakeFPGA:
             calc_chk = compute_checksum(frame_id, payload_len, payload)
             if calc_chk != received_chk:
                 self.checksum_errors += 1
-                self.resyncs_count += 1
                 idx = sof_pos + 1
                 continue
 
@@ -310,8 +338,9 @@ class FakeFPGA:
                 ascii_data = render_ascii_frame(canonical)
                 self._output_ascii.extend(ascii_data)
                 self.valid_frames_count += 1
-            except Exception:
-                self.length_errors += 1
+                self.received_fids.append(frame_id)
+            except ValueError:
+                self.run_errors += 1
 
             # Buang paket yang sudah diproses dari buffer
             del self._rx_buf[: sof_pos + packet_total_len]
@@ -492,13 +521,25 @@ def main() -> None:
         "--av-offset-ms",
         type=float,
         default=0.0,
-        help="Offset audio/video dalam milidetik (default: 0 ms [DIASUMSIKAN]).",
+        help="Offset audio/video dalam milidetik: nilai positif berarti video dikirim lebih lambat dari jam acuan (default: 0 ms [DIASUMSIKAN]).",
     )
     parser.add_argument(
         "--no-audio",
         action="store_true",
         default=True,
         help="Gunakan jam MonotonicClock tanpa sinkronisasi audio (default: True).",
+    )
+    parser.add_argument(
+        "--ascii-out",
+        type=str,
+        default=None,
+        help="Jalur berkas untuk menyimpan byte mentah aliran ASCII yang diterima dari FPGA.",
+    )
+    parser.add_argument(
+        "--no-display",
+        action="store_true",
+        default=False,
+        help="Matikan pencetakan tampilan aliran ASCII ke stdout (default: False).",
     )
     parser.add_argument(
         "--file",
@@ -525,22 +566,31 @@ def main() -> None:
     print(f"Laju Frame    : {args.fps} FPS")
     print(f"A/V Offset    : {args.av_offset_ms} ms [DIASUMSIKAN]")
     print(f"Mode Jam      : MonotonicClock (--no-audio)")
+    print(f"Tampilan      : {'NONAKTIF (--no-display)' if args.no_display else 'AKTIF (sys.stdout.buffer)'}")
+    if args.ascii_out:
+        print(f"Simpan ASCII  : {args.ascii_out}")
     print(f"Berkas Stream : {args.file} ({len(stream_data)} bytes)")
     print("=" * 60)
 
     transport = SerialTransport(port=args.port, baudrate=args.baud)
     clock = MonotonicClock()
 
-    def stdout_writer(data: bytes):
-        sys.stdout.buffer.write(data)
-        sys.stdout.buffer.flush()
+    ascii_file = open(args.ascii_out, "wb") if args.ascii_out else None
+
+    def output_handler(data: bytes):
+        if not args.no_display:
+            sys.stdout.buffer.write(data)
+            sys.stdout.buffer.flush()
+        if ascii_file is not None:
+            ascii_file.write(data)
+            ascii_file.flush()
 
     player = StreamPlayer(
         transport=transport,
         clock=clock,
         fps=args.fps,
         av_offset_ms=args.av_offset_ms,
-        on_terminal_output=stdout_writer,
+        on_terminal_output=output_handler,
     )
 
     try:
@@ -549,6 +599,8 @@ def main() -> None:
         time.sleep(0.1)
         player.stop_reader()
         transport.close()
+        if ascii_file is not None:
+            ascii_file.close()
         print("\n" + "=" * 60)
         print("RINGKASAN STREAMING:")
         print(f"Total Frame   : {stats['total_frames']}")

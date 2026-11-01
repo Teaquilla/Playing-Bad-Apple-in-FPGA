@@ -86,7 +86,8 @@ def test_late_frames_dropped():
 
     assert stats["total_frames"] == 5
     # Frame 1 dan Frame 2 terlambat > 2 frame (0.15 > 0.10 dan 0.15 > 0.133), jadi dibuang!
-    assert stats["dropped_frames"] >= 2, f"Harus ada frame telat yang dibuang: {stats}"
+    assert stats["dropped_frames"] == 2, f"Harus tepat 2 frame telat yang dibuang: {stats}"
+    assert stats["sent_frames"] == 3
     assert stats["sent_frames"] + stats["dropped_frames"] == 5
     assert len(player.send_timestamps) == stats["sent_frames"]
 
@@ -239,3 +240,142 @@ def test_corrupted_packets_do_not_hang_player():
     # FPGA harus berhasil resinkronisasi dan menerima 90 frame sejati
     assert fpga.valid_frames_count == 90
     assert fpga.resyncs_count >= 1
+
+
+# ------------------------------------------------------------------------------
+# Test (g): Pengujian --ascii-out dan --no-display Byte-Exact vs ascii.bin
+# ------------------------------------------------------------------------------
+def test_ascii_out_and_display_options(tmp_path):
+    """Memverifikasi opsi pencatatan file --ascii-out dan penonaktifan display --no-display."""
+    with open(STREAM_CLIP_BIN, "rb") as f:
+        stream_data = f.read()
+    with open(ASCII_BIN, "rb") as f:
+        expected_ascii = f.read()
+
+    ascii_out_file = str(tmp_path / "stream_dump.bin")
+    stdout_buf = bytearray()
+
+    # Simulasikan handler terminal dengan ascii_out aktif dan display aktif
+    f_out = open(ascii_out_file, "wb")
+    def handler_with_display(data: bytes):
+        stdout_buf.extend(data)
+        f_out.write(data)
+        f_out.flush()
+
+    fpga = FakeFPGA()
+    transport = FakeTransport(fake_fpga=fpga)
+    clock = FakeClock()
+
+    player = StreamPlayer(
+        transport=transport,
+        clock=clock,
+        fps=30.0,
+        on_terminal_output=handler_with_display
+    )
+
+    player.play_stream(stream_data)
+
+    for _ in range(100):
+        if len(stdout_buf) >= 95310:
+            break
+        time.sleep(0.01)
+
+    player.stop_reader()
+    f_out.close()
+
+    # Verifikasi byte-exact 95.310 B pada stdout_buf dan berkas output
+    assert len(stdout_buf) == 95310
+    assert bytes(stdout_buf) == expected_ascii
+
+    with open(ascii_out_file, "rb") as f:
+        saved_ascii = f.read()
+    assert len(saved_ascii) == 95310
+    assert saved_ascii == expected_ascii
+
+    # Tes kedua: simulasi --no-display (stdout menerima 0 byte, berkas tetap terisi)
+    ascii_out_file_nodisp = str(tmp_path / "stream_dump_nodisp.bin")
+    stdout_buf_nodisp = bytearray()
+    f_out2 = open(ascii_out_file_nodisp, "wb")
+
+    def handler_no_display(data: bytes):
+        # no_display = True -> tidak menulis ke stdout_buf
+        f_out2.write(data)
+        f_out2.flush()
+
+    fpga.reset()
+    transport2 = FakeTransport(fake_fpga=fpga)
+    player2 = StreamPlayer(
+        transport=transport2,
+        clock=clock,
+        fps=30.0,
+        on_terminal_output=handler_no_display
+    )
+    player2.play_stream(stream_data)
+
+    for _ in range(100):
+        if os.path.exists(ascii_out_file_nodisp) and os.path.getsize(ascii_out_file_nodisp) >= 95310:
+            break
+        time.sleep(0.01)
+
+    player2.stop_reader()
+    f_out2.close()
+
+    assert len(stdout_buf_nodisp) == 0, "--no-display seharusnya tidak memancarkan byte ke stdout"
+    with open(ascii_out_file_nodisp, "rb") as f:
+        saved_nodisp = f.read()
+    assert len(saved_nodisp) == 95310
+    assert saved_nodisp == expected_ascii
+
+
+# ------------------------------------------------------------------------------
+# Test (h): FakeFPGA vs stream_expected.txt (Manifest 6 Vektor Uji)
+# ------------------------------------------------------------------------------
+def test_fake_fpga_vs_manifest():
+    """Menyuap keenam vektor uji ke FakeFPGA dan membandingkannya dengan stream_expected.txt."""
+    manifest_path = os.path.join(GOLDEN_DIR, "stream_expected.txt")
+    assert os.path.exists(manifest_path), f"Manifest tidak ditemukan: {manifest_path}"
+
+    # Parse manifest
+    expected_vectors = {}
+    current_vec = None
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("VECTOR:"):
+                current_vec = line.split(":", 1)[1].strip()
+                expected_vectors[current_vec] = {}
+            elif ":" in line and current_vec:
+                k, v = line.split(":", 1)
+                expected_vectors[current_vec][k.strip()] = int(v.strip())
+
+    fpga = FakeFPGA()
+
+    for vec_name, exp in expected_vectors.items():
+        bin_path = os.path.join(GOLDEN_DIR, f"{vec_name}.bin")
+        assert os.path.exists(bin_path), f"Berkas vektor tidak ditemukan: {bin_path}"
+
+        with open(bin_path, "rb") as f:
+            data = f.read()
+
+        fpga.reset()
+        fpga.receive_bytes(data)
+        fpga.finish()
+
+        assert fpga.valid_frames_count == exp["VALID_FRAMES"], (
+            f"[{vec_name}] VALID_FRAMES: {fpga.valid_frames_count} != {exp['VALID_FRAMES']}"
+        )
+        assert fpga.checksum_errors == exp["CHECKSUM_ERRORS"], (
+            f"[{vec_name}] CHECKSUM_ERRORS: {fpga.checksum_errors} != {exp['CHECKSUM_ERRORS']}"
+        )
+        assert fpga.length_errors == exp["LENGTH_ERRORS"], (
+            f"[{vec_name}] LENGTH_ERRORS: {fpga.length_errors} != {exp['LENGTH_ERRORS']}"
+        )
+        assert fpga.run_errors == exp["RUN_ERRORS"], (
+            f"[{vec_name}] RUN_ERRORS: {fpga.run_errors} != {exp['RUN_ERRORS']}"
+        )
+        assert fpga.resyncs_count == exp["RESYNCS"], (
+            f"[{vec_name}] RESYNCS: {fpga.resyncs_count} != {exp['RESYNCS']}"
+        )
+
