@@ -102,7 +102,13 @@ begin
                         end if;
 
                     when STOP_BIT =>
-                        if clk_cnt = HALF_BIT - 1 then
+                        -- Evaluasi stop bit dilakukan pada titik penuh periode bit (CLKS_PER_BIT - 1).
+                        -- Karena bit data 7 disampel pada clk_cnt = CLKS_PER_BIT - 1, menghitung
+                        -- hingga CLKS_PER_BIT - 1 di STOP_BIT menempatkan titik sampling tepat di
+                        -- tengah bit stop pemancar (atau mendekati akhir), menjamin toleransi baud rate
+                        -- penuh (1055..1115 ns pada 921.600 baud) dan mencegah framing error palsu
+                        -- pada byte back-to-back berturutan saat MSB = 0.
+                        if clk_cnt = CLKS_PER_BIT - 1 then
                             clk_cnt <= 0;
                             state   <= IDLE;
                             if rx_sync = '1' then
