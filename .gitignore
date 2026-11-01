@@ -63,3 +63,5 @@ vivado/experiments/*.bit
 Thumbs.db
 [Dd]esktop.ini
 graphify-out/
+
+scratch/
