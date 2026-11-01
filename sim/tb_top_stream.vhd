@@ -421,9 +421,9 @@ begin
             report "Uji 3: len_errors bukan 1 (terbaca: " & integer'image(to_integer(err_len_cnt_fast)) & ")!" severity failure;
         assert rle_err_run_cnt = 0
             report "Uji 3: run_errors bukan 0!" severity failure;
-        assert to_integer(err_res_cnt_fast) >= 2
-            report "Uji 3: resyncs kurang dari 2 (terbaca: " & integer'image(to_integer(err_res_cnt_fast)) & ")!" severity failure;
-        report "Uji 3 Sukses: Paket false SOF berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B, val=91, chk=1, len=1, run=0, res>=2)!";
+        assert to_integer(err_res_cnt_fast) = 3
+            report "Uji 3: resyncs bukan 3 (terbaca: " & integer'image(to_integer(err_res_cnt_fast)) & ")!" severity failure;
+        report "Uji 3 Sukses: Paket false SOF berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B, val=91, chk=1, len=1, run=0, res=3)!";
 
         -- 4. Uji Vektor Byte Insertion: stream_byte_insertion.hex (garbage 6B + Frame 0 347B = 353 byte)
         report "=== [TB_TOP_STREAM] Uji 4: Umpankan stream_byte_insertion.hex ===";

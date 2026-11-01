@@ -207,7 +207,7 @@ begin
                 -- Asersi dipasang pada sel yang terverifikasi lulus di HEAD (Periode 38ns, 39ns, 40ns nominal seluruh offset, serta 41ns offset 0)
                 if (p_idx <= 2) or (p_idx = 3 and o_idx = 0) then
                     assert cell_rx = 4
-                        report "Gagal pada sapuan 25 MHz: Periode=" & integer'image(p_idx) & " Offset=" & integer'image(o_idx) & "ns, diterima=" & integer'image(cell_rx) & " /= 4!"
+                        report "Gagal pada sapuan 25 MHz: Periode=" & integer'image(38 + p_idx) & "ns Offset=" & integer'image(o_idx) & "ns, diterima=" & integer'image(cell_rx) & " /= 4!"
                         severity failure;
                 end if;
             end loop;
