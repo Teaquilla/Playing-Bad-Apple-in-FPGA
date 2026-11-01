@@ -410,6 +410,9 @@ class StreamPlayer:
         self.dropped_frames_count: int = 0
         self.sent_frames_count: int = 0
         self.send_timestamps: List[float] = []
+        self.mono_timestamps: List[float] = []
+        self.clock_timestamps: List[float] = []
+        self.scheduled_timestamps: List[float] = []
         self.reader_errors_count: int = 0
         self.first_reader_error: Optional[Exception] = None
 
@@ -467,6 +470,10 @@ class StreamPlayer:
             "received_bytes": self.received_bytes_count,
             "reader_errors": self.reader_errors_count,
             "first_reader_error": repr(self.first_reader_error) if self.first_reader_error else None,
+            "send_timestamps": list(self.send_timestamps),
+            "mono_timestamps": list(self.mono_timestamps),
+            "clock_timestamps": list(self.clock_timestamps),
+            "scheduled_timestamps": list(self.scheduled_timestamps),
         }
 
     def play_packets(
@@ -493,6 +500,9 @@ class StreamPlayer:
         self.sent_frames_count = 0
         self.dropped_frames_count = 0
         self.send_timestamps.clear()
+        self.mono_timestamps.clear()
+        self.clock_timestamps.clear()
+        self.scheduled_timestamps.clear()
 
         for n, packet in enumerate(packets):
             t_sched = t0 + (n * frame_interval) + self.av_offset_sec
@@ -511,7 +521,11 @@ class StreamPlayer:
             # Kirim paket ke FPGA
             self.transport.write(packet)
             self.sent_frames_count += 1
-            self.send_timestamps.append(self.clock.now())
+            now_clock = self.clock.now()
+            self.send_timestamps.append(now_clock)
+            self.mono_timestamps.append(time.monotonic())
+            self.clock_timestamps.append(now_clock)
+            self.scheduled_timestamps.append(t_sched)
 
         return self.get_stats()
 
@@ -566,6 +580,18 @@ def main() -> None:
         type=str,
         default=None,
         help="Jalur berkas audio WAV untuk sinkronisasi pemutaran audio PC opsi A1 (default: None, menggunakan MonotonicClock).",
+    )
+    parser.add_argument(
+        "--audio-stall-ms",
+        type=float,
+        default=100.0,
+        help="Batas waktu toleransi stall/macet audio dalam milidetik sebelum fallback ke MonotonicClock (default: 100 ms).",
+    )
+    parser.add_argument(
+        "--audio-start-sec",
+        type=float,
+        default=None,
+        help="Posisi awal audio dalam detik (default: dihitung dari start-frame / FPS).",
     )
     parser.add_argument(
         "--fake-fpga",
@@ -647,8 +673,16 @@ def main() -> None:
     audio_dev = None
     if args.audio:
         from python.audio_player import SoundDeviceAudio, AudioClock
-        audio_dev = SoundDeviceAudio(args.audio)
-        clock = AudioClock(audio_dev)
+        if args.audio_start_sec is not None:
+            audio_start_sec = args.audio_start_sec
+        elif args.start_frame > 0:
+            audio_start_sec = args.start_frame / args.fps
+        else:
+            audio_start_sec = 0.0
+
+        stall_sec = args.audio_stall_ms / 1000.0
+        audio_dev = SoundDeviceAudio(args.audio, start_sec=audio_start_sec)
+        clock = AudioClock(audio_dev, stall_timeout_sec=stall_sec)
     else:
         clock = MonotonicClock()
 

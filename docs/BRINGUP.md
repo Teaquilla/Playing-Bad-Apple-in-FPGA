@@ -135,10 +135,23 @@ Untuk memvalidasi pemutaran video streaming dari PC ke FPGA Basys 3:
 
 4. **Mode Simulasi Boardless Mandiri (`--fake-fpga`):**
    Untuk menguji seluruh pipeline perangkat lunak host (video RLE + audio PC + render ASCII) secara mandiri di PC tanpa perangkat keras FPGA:
-   ```powershell
-   .\.venv\Scripts\python.exe python/stream_player.py --fake-fpga --clip data/golden/stream_clip.bin --audio data/audio/bad_apple.wav --start-frame 0 --max-frames 90
-   ```
-   *Catatan:* Evaluasi keselarasan sinkronisasi audio-video merupakan evaluasi subjektif pengguna.
+
+   - **Kasus A: Memutar Klip Golden 90 Frame (`data/golden/stream_clip.bin`):**
+     Berkas `stream_clip.bin` memuat frame 300..389 dari MP4 asli (detik 10,0 hingga 13,0). Agar audio berbunyi selaras dengan visual klip, gunakan `--audio-start-sec 10.0`:
+     ```powershell
+     .\.venv\Scripts\python.exe python/stream_player.py --fake-fpga --clip data/golden/stream_clip.bin --audio data/audio/bad_apple.wav --audio-start-sec 10.0
+     ```
+
+   - **Kasus B: Memutar Aliran Video Penuh (`data/stream_full.bin`):**
+     Jika berkas aliran video lengkap digunakan, opsi `--start-frame 300` secara otomatis menyelaraskan audio ke sampel awal $300 / 30 \times 44.100 = 441.000$ (detik 10,0):
+     ```powershell
+     .\.venv\Scripts\python.exe python/stream_player.py --fake-fpga --clip data/stream_full.bin --audio data/audio/bad_apple.wav --start-frame 300 --max-frames 90
+     ```
+
+   *Catatan Evaluasi Waktu & Sinkronisasi [DIASUMSIKAN]:*
+   - Sampel ke-k WAV ($k \ge 1.024$) berada di waktu kontainer $k/44100 + 33,33\text{ ms}$; frame $n$ sejajar WAV pada $n/30$; default `--av-offset-ms = 0` [DIASUMSIKAN].
+   - Video tampil di terminal sekitar [waktu kirim paket + waktu keluaran ASCII ~11,5 ms + latensi render terminal] setelah dikirim, sehingga offset kalibrasi di board kemungkinan bernilai negatif [DIASUMSIKAN sampai ada board fisik].
+   - Penilaian akhir keselarasan sinkronisasi audio-video dilakukan secara subjektif oleh pengguna (mata dan telinga), bukan oleh skrip atau asisten.
 
 ### Hasil yang Diharapkan [DIASUMSIKAN]:
 - Skrip mengirimkan seluruh frame paket RLE pada laju 30 FPS.

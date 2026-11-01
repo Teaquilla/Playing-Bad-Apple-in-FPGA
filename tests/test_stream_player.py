@@ -456,7 +456,7 @@ def test_audio_clock_synchronization():
     # Majukan audio sebanyak 4410 sampel (0.100 detik):
     # Waktu fisik = 0.100 - 0.020 = 0.080 s
     audio_dev.advance_frames(4410)
-    assert abs(clock.now() - 0.080) < 1e-6
+    assert abs(clock.now() - 0.080) < 1e-3
 
     # Hubungkan ke StreamPlayer
     transport = FakeTransport()
@@ -478,24 +478,55 @@ def test_audio_clock_synchronization():
 
 
 # ------------------------------------------------------------------------------
-# Test (l): Audio Macet / Berhenti Tidak Membuat Player Menggantung
+# Test (l): Audio Macet / Berhenti Jatuh Kembali ke MonotonicClock (Tanpa Burst)
 # ------------------------------------------------------------------------------
-def test_audio_stall_does_not_hang_player():
-    """Memverifikasi bahwa jika audio berhenti (is_active=False), sleep_until keluar segera tanpa hang."""
-    audio_dev = FakeAudioDevice(sample_rate=44100, latency_sec=0.010)
+def test_audio_stall_fallback_to_monotonic_no_burst():
+    """Memverifikasi bahwa jika audio macet/berhenti di tengah streaming,
+    player jatuh kembali ke MonotonicClock berjangkar dan mengirim frame
+    berikutnya sesuai laju FPS tanpa burst.
+    """
+    fps = 30.0
+    frame_interval = 1.0 / fps
+    audio_dev = FakeAudioDevice(sample_rate=44100, latency_sec=0.0)
     audio_dev.start()
-    clock = AudioClock(audio_dev)
+    # Atur batas deteksi stall 25 ms untuk pengujian responsif
+    clock = AudioClock(audio_dev, stall_timeout_sec=0.025)
+    transport = FakeTransport()
+    player = StreamPlayer(transport=transport, clock=clock, fps=fps)
 
-    # Hentikan audio di tengah jalan
-    audio_dev.stop()
+    # Kirim 30 frame: majukan audio normal di 10 frame awal, lalu hentikan di frame 10
+    sent_times = []
+    original_write = transport.write
 
-    t_start = time.monotonic()
-    # sleep_until ke target waktu masa depan (10 detik)
-    clock.sleep_until(10.0)
-    elapsed = time.monotonic() - t_start
+    def write_hook(data: bytes):
+        original_write(data)
+        sent_times.append(time.monotonic())
+        if len(sent_times) < 10:
+            audio_dev.advance_frames(1470)
+        elif len(sent_times) == 10:
+            audio_dev.stop()
 
-    # Harus segera keluar (< 0.1 detik) karena audio sudah tidak aktif
-    assert elapsed < 0.1, f"Player menggantung saat audio berhenti: elapsed={elapsed}s"
+    transport.write = write_hook
+    packets = [make_dummy_packet(i) for i in range(30)]
+
+    with pytest.warns(UserWarning, match="stall detected"):
+        stats = player.play_packets(packets)
+    player.stop_reader()
+
+    assert stats["sent_frames"] == 30
+    assert stats["dropped_frames"] == 0
+    assert len(sent_times) == 30
+    assert clock.is_stalled is True
+
+    # Periksa interval pengiriman setelah audio macet (frame 11..29)
+    # Selang kirim harus >= 1/FPS - toleransi (tidak boleh ada burst sekaligus)
+    tolerance = 0.012  # toleransi timer OS Windows
+    for i in range(11, len(sent_times)):
+        dt = sent_times[i] - sent_times[i - 1]
+        assert dt >= (frame_interval - tolerance), (
+            f"Burst terdeteksi pada frame {i}: interval {dt*1000:.2f} ms "
+            f"< batas minimum {(frame_interval - tolerance)*1000:.2f} ms"
+        )
 
 
 # ------------------------------------------------------------------------------
@@ -505,11 +536,11 @@ def test_audio_backwards_clock_does_not_duplicate_frames():
     """Memverifikasi bahwa jam audio yang melompat mundur tidak menyebabkan frame dikirim ganda."""
     audio_dev = FakeAudioDevice(sample_rate=44100, latency_sec=0.0)
     audio_dev.start()
-    clock = AudioClock(audio_dev)
+    clock = AudioClock(audio_dev, stall_timeout_sec=0.200)
 
     # Waktu maju ke 0.1 s
     audio_dev.advance_frames(4410)
-    assert abs(clock.now() - 0.10) < 1e-6
+    assert abs(clock.now() - 0.10) < 1e-3
 
     # Simulasikan glitch DAC di mana frame counter melompat mundur ke 2205 (0.05 s)
     audio_dev.set_frames_played(2205)
@@ -520,6 +551,14 @@ def test_audio_backwards_clock_does_not_duplicate_frames():
     # Jalankan StreamPlayer dengan 4 frame
     transport = FakeTransport()
     player = StreamPlayer(transport=transport, clock=clock, fps=30.0)
+
+    # Majukan audio saat pengiriman frame agar pengujian berjalan cepat
+    original_write = transport.write
+    def write_hook(data: bytes):
+        original_write(data)
+        audio_dev.advance_frames(1470)
+
+    transport.write = write_hook
     packets = [make_dummy_packet(i) for i in range(4)]
     stats = player.play_packets(packets)
     player.stop_reader()
@@ -548,5 +587,38 @@ def test_stream_player_start_and_max_frames():
     assert stats["total_frames"] == 4
     assert stats["sent_frames"] == 4
     assert stats["dropped_frames"] == 0
+
+
+# ------------------------------------------------------------------------------
+# Test (o): Penyelarasan Sampel Awal Audio (--start-frame & --audio-start-sec)
+# ------------------------------------------------------------------------------
+def test_audio_start_sample_alignment():
+    """Memverifikasi bahwa start_sec menggeser sampel awal audio dengan benar."""
+    audio_dev = FakeAudioDevice(sample_rate=44100, latency_sec=0.0, start_sec=10.0)
+    assert audio_dev.start_sample() == 441000
+    assert audio_dev.start_sec() == 10.0
+
+    clock = AudioClock(audio_dev)
+    # Jam acuan awal harus berada pada 10.0 detik
+    assert abs(clock.now() - 10.0) < 1e-3
+
+
+# ------------------------------------------------------------------------------
+# Test (p): Interpolasi Halus Antara Callback Audio
+# ------------------------------------------------------------------------------
+def test_audio_clock_interpolation():
+    """Memverifikasi bahwa AudioClock menginterpolasi waktu di antara callback audio secara mikrodetik."""
+    audio_dev = FakeAudioDevice(sample_rate=44100, latency_sec=0.0)
+    audio_dev.start()
+    clock = AudioClock(audio_dev, stall_timeout_sec=0.200)
+
+    t0 = clock.now()
+    time.sleep(0.015)  # Tunggu 15 ms tanpa advance_frames
+    t1 = clock.now()
+
+    dt = t1 - t0
+    # Waktu jam audio harus maju sekitar 15 ms (interpolasi), bukan 0 ms (terkuantisasi)
+    assert dt >= 0.010, f"Jam audio terkuantisasi: dt={dt*1000:.2f} ms"
+
 
 

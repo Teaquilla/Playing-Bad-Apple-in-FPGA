@@ -84,7 +84,7 @@ Legenda status: `[ ]` belum, `[~]` berjalan, `[x]` selesai dan terverifikasi.
 | ID | Tugas | Verifikasi | Status |
 |---|---|---|---|
 | T3.1 | **GATE:** tutup D-3 (pemegang waktu) dan D-5 (parameter audio) | Dicatat | [x] |
-| T3.2 | A1: pemutar audio PC yang dimulai sinkron dengan video | Selisih audio-video diukur dan sesuai SPEC bagian 7; implementasi di `python/audio_player.py` dan `python/stream_player.py --audio` diverifikasi di tes unit boardless | [x] |
+| T3.2 | A1: pemutar audio PC yang dimulai sinkron dengan video | implementasi selesai; belum diuji dengan perangkat audio nyata (lihat B.5); sinkron audio-video belum dinilai pengguna. [DIASUMSIKAN]: sampel ke-k WAV (k >= 1.024) berada di waktu kontainer k/44100 + 33,33 ms; frame n sejajar WAV pada n/30; default --av-offset-ms = 0. Video tampil di terminal sekitar [waktu kirim paket + waktu keluaran ASCII ~11,5 ms + latensi render terminal] setelah dikirim, sehingga offset kalibrasi di board kemungkinan negatif [DIASUMSIKAN sampai ada board]. | [~] |
 | T3.3 | Riset dan usulan rangkaian A2 (resistor seri, kapasitor DC-blocking, filter RC) | Skema dan nilai komponen diajukan | [ ] |
 | T3.4 | **GATE:** review manusia atas rangkaian sebelum dihubungkan | Persetujuan tercatat | [ ] |
 | T3.5 | `audio_out` (PWM/sigma-delta) dan testbench | Spektrum/keluaran simulasi sesuai sampel masukan | [ ] |
