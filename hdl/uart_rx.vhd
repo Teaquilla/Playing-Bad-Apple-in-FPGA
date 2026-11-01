@@ -102,12 +102,8 @@ begin
                         end if;
 
                     when STOP_BIT =>
-                        -- Evaluasi stop bit dilakukan pada titik penuh periode bit (CLKS_PER_BIT - 1).
-                        -- Karena bit data 7 disampel pada clk_cnt = CLKS_PER_BIT - 1, menghitung
-                        -- hingga CLKS_PER_BIT - 1 di STOP_BIT menempatkan titik sampling tepat di
-                        -- tengah bit stop pemancar (atau mendekati akhir), menjamin toleransi baud rate
-                        -- penuh (1055..1115 ns pada 921.600 baud) dan mencegah framing error palsu
-                        -- pada byte back-to-back berturutan saat MSB = 0.
+                        -- FSM masuk STOP_BIT tepat setelah mencuplik bit data ke-7 di tengah bit itu (8,5 bit dari tepi start). Menunggu HALF_BIT mencuplik pada batas data/stop (9,0 bit); menunggu CLKS_PER_BIT - 1 mencuplik di tengah stop bit (9,5 bit).
+                        -- Terverifikasi xsim pada periode 1055..1115 ns (+-2,76%). Batas teoretis hitungan tangan kira-kira P dalam (1036, 1150) ns [DIASUMSIKAN]. Pada 31a1007, batas lambat sekitar -0,4% baud [DIVERIFIKASI oleh matriks xsim].
                         if clk_cnt = CLKS_PER_BIT - 1 then
                             clk_cnt <= 0;
                             state   <= IDLE;

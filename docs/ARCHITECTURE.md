@@ -191,7 +191,9 @@ Waktu (perkiraan, 1059 byte per frame × 10 bit per byte pada UART 8N1):
 Anggaran satu frame pada 30 fps adalah 33,3 ms. 115200 baud tidak cukup. 921600 memakai sekitar sepertiga anggaran. Pembacaan buffer (1024 byte per frame pada 100 MHz) jauh lebih cepat daripada UART, sehingga UART adalah bottleneck-nya.
 
 ### 4.7 `audio_out` (M3, kerangka)
-Masuk: aliran sampel PCM pada laju `sample_tick`. Keluar: 1 pin PMOD (PWM atau sigma-delta). Filter rekonstruksi RC di luar FPGA. Rincian komponen dan keselamatan earphone di-riset dan direview manusia (SPEC aturan 8). Opsi A1 (audio diputar PC) tidak membutuhkan modul ini.
+Sesuai keputusan tim D-5 (2026-10-31), parameter audio hardware ditetapkan pada **PCM 8-bit 8 kHz mono unsigned** (titik tengah 128, ukuran total 217,84 s $\times$ 8.000 B = 1.742.720 Byte / 13,94 Mbit).
+- **Konsekuensi Jalur Output A2 (Audio dari FPGA):** Masuk: aliran sampel PCM 8-bit 8 kHz pada laju `sample_tick`. Keluar: 1 pin PMOD (PWM atau sigma-delta) + filter rekonstruksi RC di luar FPGA + earphone [DIASUMSIKAN sampai ada rangkaian fisik dan batas arus pin diverifikasi dari datasheet]. Logika dekoder ADPCM di hardware dieliminasi penuh sehingga hemat logika.
+- **Konsekuensi Jalur Output A1 (Audio dari PC Host):** Pemutaran audio di PC menggunakan berkas audio asli (44,1 kHz stereo/mono) dan **TIDAK terpengaruh oleh D-5**. Jalur A1 tidak memerlukan modul hardware FPGA ini.
 
 ### 4.8 `oled_sink` (M4, kerangka)
 Membaca `frame_buffer`, mengonversi ke page-addressing SSD1306, dan mengirim lewat master SPI atau I2C (D-7). Dikembangkan terlebih dulu di simulasi memakai model perilaku layar.
@@ -219,6 +221,24 @@ Top-level entity (`hdl/top.vhd`) yang mengintegrasikan seluruh subsistem:
 - **Ukuran Bitstream:**
   - Terkompresi: **549.964 byte** (4,40 Mbit / 549.756 byte file `.bin`), kompresi bitstream menghemat 13.138.016 bit (75,0%).
   - Tidak terkompresi: **2.192.221 byte** (17,54 Mbit / 2.192.012 byte file `.bin`).
+
+#### Hasil Implementasi M2b Integrasi Streaming & Delayed Swap `[DIVERIFIKASI]`
+- **Timing Pasca-Implementasi (Routed):** WNS = **+1,387 ns**, TNS = **0,000 ns**, WHS = **+0,071 ns**, THS = **0,000 ns** pada 100.000 MHz.
+- **Utilisasi Sumber Daya (Total Routed):**
+  - Slice LUTs: **3.128** / 20.800 (15,04%)
+  - Slice Registers (FF): **618** / 41.600 (1,49%)
+  - Block RAM Tile: **1,0 Tile** (2x RAMB18E1) / 50 (2,00%)
+  - Bonded IOB: **12** / 106 (`clk`, `btnC`, `sw[0]`, `RsRx`, `RsTx`, `led[0..6]`)
+- **Ukuran Bitstream:**
+  - Terkompresi M2b: **618.468 byte** (4,95 Mbit), naik +4,77% dari 590.304 B sebelum perbaikan UART RX (variasi routing memengaruhi kompresibilitas [DIASUMSIKAN]).
+  - Tidak terkompresi M2b: **2.192.221 byte** (17,54 Mbit / 2.192.012 byte file `.bin`).
+- **Prosedur Mode Streaming & Pengaturan Board Fisik [DIASUMSIKAN]:**
+  - **Saklar Pemilih Mode (SW0 Pin V17):** Geser saklar `sw[0]` (pin V17) ke '1' (posisi atas) untuk mengaktifkan mode streaming UART RX (M2). Bila `sw[0] = '0'`, sistem beroperasi pada mode pemutaran klip ROM on-chip (M1).
+  - **Koneksi Port Serial & Pengaturan FTDI:** Port serial 921.600 baud, 8N1. Pengaturan Latency Timer driver FTDI pada Windows disetel ke 1 ms atau 2 ms untuk mencegah jitter transmisi USB [DIASUMSIKAN].
+  - **Perintah Eksekusi Pemutar Host (`python/stream_player.py`):**
+    ```powershell
+    .\.venv\Scripts\python.exe python/stream_player.py --port COM3 --baud 921600 --clip data/golden/stream_clip.bin --fps 30 --av-offset-ms 0 --no-audio
+    ```
 
 ---
 

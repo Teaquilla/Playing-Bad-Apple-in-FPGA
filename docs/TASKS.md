@@ -68,9 +68,14 @@ Legenda status: `[ ]` belum, `[~]` berjalan, `[x]` selesai dan terverifikasi.
 | T2.4 | `packet_parser` dan `tb_packet_parser` (FSM HUNT, HDR, PAYLOAD, EOF, CHK, validasi format, timeout watchdog) | `tb_packet_parser` PASS; Sintesis OOC: 133 LUTs (0,64%), 182 FFs (0,44%), 0 BRAM | [x] |
 | T2.5 | `rle_decoder` dan `tb_rle_decoder` (ekspansi RLE 8-bit ke 1.024 byte kanonik, deteksi run overflow & length error) | `tb_rle_decoder` PASS; Sintesis OOC: 155 LUTs (0,75%), 62 FFs (0,15%), 0 BRAM | [x] |
 | T2.6 | Testbench gabungan `tb_stream_rx` (`uart_rx` $\rightarrow$ `rx_fifo` $\rightarrow$ `packet_parser` $\rightarrow$ `rle_decoder`) | `tb_stream_rx` PASS: 90 frame byte-exact vs `frames.bin` (0 ketidakcocokan); vektor galat checksum, truncation timeout, dan run overflow 100% cocok vs `stream_expected.txt` | [x] |
-| T2.7 | Integrasi ke `top.vhd` (`STREAMING_MODE`, `frame_buffer` swap tertunda, mux sumber data) | Belum diintegrasikan ke top (direncanakan prompt berikutnya); `hdl/top.vhd` tetap utuh | [ ] |
-| T2.8 | Skrip host pengirim PC `python/stream_player.py` (transmisi frame 30 FPS simultan dengan pembacaan terminal) | Direncanakan prompt berikutnya | [ ] |
-| T2.9 | Pengujian streaming video penuh 6.532 frame di board fisik Basys 3 | Menunggu integrasi M2b dan ketersediaan hardware | [ ] (menunggu board) |
+| T2.7 | Integrasi ke `top.vhd` (`STREAMING_MODE`, `frame_buffer` swap tertunda, mux sumber data) | `tb_top_stream` PASS (90 frame byte-exact vs `ascii.hex`, simulasi 25 MHz & 921.600 baud, penolakan korupsi), implementasi routed bitstream `build_m2b` lolos timing WNS = +1,387 ns | [x] |
+| T2.8 | Skrip host pengirim PC `python/stream_player.py` (transmisi frame 30 FPS simultan dengan pembacaan terminal) | 6 unit test pytest deterministik di `tests/test_stream_player.py` PASS (100%), 90 frame klip byte-exact vs `ascii.bin` (95.310 B), penanganan lag/drop frame (> 2 frame) & pembacaan RsTx non-blocking | [x] |
+| T2.9 | Pengujian streaming video penuh 6.532 frame di board fisik Basys 3 | Menunggu ketersediaan hardware Basys 3 (panduan prosedur bringup siap di `BRINGUP.md`) | [ ] (menunggu board) |
+
+> [!NOTE]
+> **Catatan Kritis Verifikasi M2b:**
+> 1. `tb_top_stream` TIDAK mendeteksi kelemahan stop bit (lulus pada RTL `31a1007`); satu-satunya penjaga regresi adalah uji baud lambat dengan byte MSB=0 di `tb_uart_rx`, jangan pernah melonggarkannya.
+> 2. Kegagalan Uji 2 pada `m2a-boardless` di 40 ns hanya muncul pada fase start `REL|0` (matriks tepi kritis); mekanisme race delta-cycle [DIASUMSIKAN]; perubahan `START_BIT` praktis tidak berpengaruh pada 921.600 baud.
 
 ---
 

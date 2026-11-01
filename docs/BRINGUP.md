@@ -51,8 +51,9 @@ Secara default, driver Virtual COM Port (VCP) FTDI pada Windows menggunakan **La
    ```
 2. Klik **Open Target** $\rightarrow$ **Auto Connect** [DIASUMSIKAN].
 3. Klik kanan pada part `xc7a35t_0` $\rightarrow$ **Program Device...** [DIASUMSIKAN].
-4. Pilih berkas bitstream terkompresi M1:
-   - Bitstream File: `vivado/build_m1/top_compressed.bit`
+4. Pilih berkas bitstream terkompresi (M1 Klip atau M2b Streaming):
+   - Bitstream File M1 (Klip ROM): `vivado/build_m1/top_compressed.bit`
+   - Bitstream File M2b (Streaming PC): `vivado/build_m2b/top_compressed.bit`
 5. Klik **Program**. LED hijau penanda selesai konfigurasi (`DONE` LD18) pada board Basys 3 harus menyala [DIASUMSIKAN].
 
 ### Opsi B: Menggunakan Skrip Tcl Batch (Tanpa GUI)
@@ -97,7 +98,35 @@ Untuk memvalidasi integritas data serial bit-for-bit di lingkungan `.venv`:
 
 ---
 
-## 6. Prosedur Diagnostik & Pencatatan Bila Terjadi Kegagalan
+## 6. Pengujian Mode Streaming M2b Menggunakan `stream_player.py` [DIASUMSIKAN]
+
+Untuk memvalidasi pemutaran video streaming dari PC ke FPGA Basys 3:
+1. **Pemilihan Mode pada Board:**
+   - Geser saklar **SW0** (pin `V17`, saklar paling kanan pada barisan 16 switch Basys 3) ke posisi **`UP` / `1`** [DIASUMSIKAN].
+   - Jika saklar SW0 berada pada posisi `0`, sistem akan memainkan klip ROM internal BRAM (Mode M1).
+2. **Pengaturan Port Serial & Driver FTDI:**
+   - **Baud Rate:** `921600`
+   - **Data Bits:** `8`
+   - **Parity:** `None`
+   - **Stop Bits:** `1`
+   - **Flow Control:** `None`
+   - Pastikan **Latency Timer** driver FTDI pada Windows sudah diubah dari default 16 ms menjadi **`1 ms`** (atau `2 ms`) di Device Manager [DIASUMSIKAN].
+3. **Eksekusi Host Streamer:**
+   Jalankan pemutar streaming dari lingkungan `.venv`:
+   ```powershell
+   .\.venv\Scripts\python.exe python/stream_player.py --port COM3 --baud 921600 --clip data/golden/stream_clip.bin --fps 30 --av-offset-ms 0 --no-audio
+   ```
+   *(Ganti `COM3` dengan nomor port COM fisik yang terdeteksi)*.
+
+### Hasil yang Diharapkan [DIASUMSIKAN]:
+- Skrip mengirimkan seluruh 90 frame klip paket RLE pada laju 30 FPS.
+- Thread pembaca simultan menangkap aliran byte ASCII dari pin RsTx (~31,8 KB/s) tanpa lagging atau deadlock.
+- Terminal menampilkan animasi ASCII 128×64 tanpa tearing (buffer swap tertunda hanya terjadi saat frame baru valid).
+- Pada ringkasan akhir: `Total Frame: 90`, `Frame Terkirim: 90`, `Frame Dibuang: 0`, `Byte Diterima: 95310`.
+
+---
+
+## 7. Prosedur Diagnostik & Pencatatan Bila Terjadi Kegagalan
 
 | Gejala Masalah | Kemungkinan Penyebab | Tindakan Pemeriksaan & Solusi |
 |---|---|---|
