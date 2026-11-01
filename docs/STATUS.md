@@ -69,10 +69,10 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context`):
 
 ### C. Catatan Teknis & Audit Implementasi M2b
 
-1. **Perbaikan Titik Cuplik UART RX (`HALF_BIT - 1`):**
-   - **Kondisi:** Pada modul `hdl/uart_rx.vhd`, kondisi evaluasi start dan stop bit diubah dari `clk_cnt = HALF_BIT` menjadi `clk_cnt = HALF_BIT - 1` [DIVERIFIKASI: `hdl/uart_rx.vhd` baris 77 & 105].
-   - **Alasan:** Pada laju uji dipercepat 25 MHz (`CLKS_PER_BIT = 4`, `HALF_BIT = 2`), pencacahan dari 0 membuat pembanding `clk_cnt = 2` mengevaluasi pada siklus ke-3 (75% jendela bit). Kelemahan ini terungkap pada uji dipercepat 25 MHz dengan variasi fase sub-siklus dan transmisi back-to-back tanpa jeda [DIVERIFIKASI: simulasi xsim].
-   - **Baud Nyata (921.600 baud):** Pada clock 100 MHz (`CLKS_PER_BIT = 109`, `HALF_BIT = 54`), perbaikan ini hanya menggeser titik cuplik sebesar 1 siklus clock (dari siklus 55 ke siklus 54, yaitu pergeseran 10 ns dari total 1.085 ns jendela bit). Dampak pada perangkat keras fisik: [DIASUMSIKAN].
+1. **Perbaikan Evaluasi Stop Bit UART RX (`STOP_BIT = CLKS_PER_BIT - 1`):**
+   - **Kondisi:** Pada modul `hdl/uart_rx.vhd`, evaluasi `START_BIT` tetap pada titik tengah bit `clk_cnt = HALF_BIT - 1` [DIVERIFIKASI: baris 77], sedangkan evaluasi `STOP_BIT` diubah menjadi `clk_cnt = CLKS_PER_BIT - 1` [DIVERIFIKASI: baris 109].
+   - **Mekanisme & Alasan:** Pada protokol UART 8N1, bit data 7 disampel pada `clk_cnt = CLKS_PER_BIT - 1` di akhir jendela bit ke-8. Karena FSM berpindah ke `STOP_BIT` tepat di batas awal bit stop pemancar, menunggu penghitungan penuh hingga `CLKS_PER_BIT - 1` menempatkan titik evaluasi stop bit tepat di tengah durasi bit stop pemancar (atau mendekati akhir). Hal ini mengeliminasi framing error prematur pada byte back-to-back berturutan saat bit MSB (bit 7) bernilai '0', serta memberikan rentang toleransi laju baud riil 100% pada 1055..1115 ns (-2,76% s.d. +2,76% dari nominal 1085 ns) [DIVERIFIKASI: xsim Vivado 2026.1].
+   - **Verifikasi Laju Uji 25 MHz:** Pada laju 25 MHz (`CLKS_PER_BIT = 4`), stop bit dievaluasi pada siklus ke-4 (`clk_cnt = 3`), sehingga FSM tidak keluar lebih awal ke `IDLE` dan menyinkronkan seluruh 347 byte vektor galat secara deterministik (0 dropped byte) [DIVERIFIKASI: xsim].
 
 2. **Pembagi Baud Rate & Galat Nominal:**
    - **Formula:** `constant CLKS_PER_BIT : integer := (CLK_FREQ_HZ + BAUD_RATE / 2) / BAUD_RATE;` [DIVERIFIKASI: `hdl/uart_rx.vhd` baris 27, `hdl/uart_tx.vhd` baris 26].
@@ -89,7 +89,7 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context`):
 
 4. **Utilisasi Hardware Top-Level (Routed):**
    - **Total Terukur [DIVERIFIKASI: `vivado/build_m2b/utilization.rpt`]:**
-     - **LUT (Logic):** **3.126** / 20.800 (15,03%)
+     - **LUT (Logic):** **3.128** / 20.800 (15,04%)
      - **Flip-Flop (FF):** **618** / 41.600 (1,49%)
      - **Block RAM Tile:** **1,0 Tile** (2x RAMB18E1) / 50 Tile (2,00%)
    - **Catatan Laporan Hierarkis:** Laporan hierarkis `utilization_hierarchical.rpt` tidak mengatribusikan 65 LUT, 69 FF, dan 1 RAMB18 secara eksplisit ke baris anak karena baris modul `u_buf`, `u_uart_rx`, `u_uart_tx`, dan `decoder` tidak tercantum di tabel anak [DIVERIFIKASI].
@@ -112,10 +112,11 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context`):
 - **D-9:** Pemutaran standalone dari SPI flash ditutup sebagai target lanjutan.
 - **D-11:** Rasio aspek video 2:1 native (1280x640), resize 10:1 tanpa bilah hitam.
 - **D-12:** Jalur arsitektur video penuh utama adalah **Streaming UART RX dari PC**.
+- **D-5:** Audio PCM 8-bit 8 kHz mono [DIVERIFIKASI: keputusan tertulis tim 2026-10-31].
+- **D-13:** Evaluasi stop bit UART RX pada `clk_cnt = CLKS_PER_BIT - 1` untuk toleransi baud penuh.
 - **D-Ramp / D-Bin:** Ramp ASCII A (`" .:-=+*#@"`) & Binerisasi Ambang Tetap (128).
 
 ### B. Keputusan Terbuka (Open)
-- **D-5 (Audio):** Parameter audio final (laju sampel 8 kHz vs 6 kHz IMA ADPCM mono) menunggu evaluasi tim terhadap berkas contoh audio di `data/preview/`.
 - **D-10 (Kontainer Media):** Struktur paket streaming audio/video (diputuskan di M2: video frame RLE mandiri, audio stream disisipkan atau interleave).
 
 ---
