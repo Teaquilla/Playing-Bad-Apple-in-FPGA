@@ -22,10 +22,16 @@ Fitur:
 from __future__ import annotations
 import abc
 import os
+import sys
 import time
 import warnings
 import wave
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Dict, Any
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 
 class AudioDevice(abc.ABC):
@@ -76,6 +82,10 @@ class AudioDevice(abc.ABC):
         """Mengembalikan timestamp time.monotonic() dari callback/pemajuan sampel terakhir."""
         pass
 
+    def callback_flags(self) -> Dict[str, int]:
+        """Mengembalikan statistik flag callback audio (misal: underflow, overflow)."""
+        return {}
+
 
 class FakeAudioDevice(AudioDevice):
     """Perangkat audio tiruan deterministik untuk pengujian unit tanpa sound card riil."""
@@ -85,6 +95,7 @@ class FakeAudioDevice(AudioDevice):
         sample_rate: int = 44100,
         latency_sec: float = 0.020,
         start_sec: float = 0.0,
+        auto_advance: bool = False,
     ):
         self._sample_rate = sample_rate
         self._latency = latency_sec
@@ -92,15 +103,22 @@ class FakeAudioDevice(AudioDevice):
         self._start_sample = int(round(self._start_sec * self._sample_rate))
         self._frames_played = 0
         self._active = False
-        self._last_advance_mono = time.monotonic()
+        self._start_mono = time.monotonic()
+        self._last_advance_mono = self._start_mono
         self.stall_simulation = False
+        self._auto_advance = auto_advance
+        self._callback_flags: Dict[str, int] = {"output_underflow": 0, "output_overflow": 0, "other": 0}
 
     def start(self) -> None:
         self._active = True
-        self._last_advance_mono = time.monotonic()
+        self._start_mono = time.monotonic()
+        self._last_advance_mono = self._start_mono
 
     def stop(self) -> None:
         self._active = False
+
+    def close(self) -> None:
+        self.stop()
 
     def advance_frames(self, frames: int) -> None:
         """Memajukan posisi sampel (untuk simulasi)."""
@@ -118,6 +136,9 @@ class FakeAudioDevice(AudioDevice):
         self._last_advance_mono = time.monotonic()
 
     def frames_played(self) -> int:
+        if self._auto_advance and self._active and not self.stall_simulation:
+            elapsed = time.monotonic() - self._start_mono
+            return int(round(elapsed * self._sample_rate))
         return self._frames_played
 
     def output_latency(self) -> float:
@@ -136,13 +157,24 @@ class FakeAudioDevice(AudioDevice):
         return self._start_sample
 
     def last_callback_mono(self) -> float:
+        if self._auto_advance and self._active and not self.stall_simulation:
+            return time.monotonic()
         return self._last_advance_mono
+
+    def callback_flags(self) -> Dict[str, int]:
+        return dict(self._callback_flags)
 
 
 class SoundDeviceAudio(AudioDevice):
     """Implementasi pemutar audio nyata menggunakan pustaka sounddevice (lazy import)."""
 
-    def __init__(self, wav_path: str, start_sec: float = 0.0):
+    def __init__(
+        self,
+        wav_path: str,
+        start_sec: float = 0.0,
+        hostapi: Optional[str] = None,
+        device: Optional[int] = None,
+    ):
         if not os.path.exists(wav_path):
             raise FileNotFoundError(f"Berkas audio tidak ditemukan: {wav_path}")
 
@@ -174,6 +206,19 @@ class SoundDeviceAudio(AudioDevice):
         self._active = False
         self._latency = 0.0
         self._last_callback_mono = time.monotonic()
+        self._callback_flags: Dict[str, int] = {"output_underflow": 0, "output_overflow": 0, "other": 0}
+
+        target_device = device
+        if target_device is None and hostapi and hostapi.lower() != "default":
+            for api_info in self._sd.query_hostapis():
+                if hostapi.lower() in api_info["name"].lower():
+                    target_device = api_info.get("default_output_device")
+                    if target_device is None or target_device < 0:
+                        for dev_idx in api_info.get("devices", []):
+                            if self._sd.query_devices(dev_idx).get("max_output_channels", 0) > 0:
+                                target_device = dev_idx
+                                break
+                    break
 
         # Inisialisasi RawOutputStream dengan buffer mentah tanpa numpy
         self._stream = self._sd.RawOutputStream(
@@ -181,11 +226,20 @@ class SoundDeviceAudio(AudioDevice):
             channels=self._channels,
             dtype="int16",
             callback=self._audio_callback,
+            device=target_device,
         )
 
     def _audio_callback(self, outdata: memoryview, frames: int, time_info, status) -> None:
         """Callback audio non-blocking sounddevice: mengisi buffer outdata dari berkas WAV."""
         self._last_callback_mono = time.monotonic()
+        if status:
+            if getattr(status, "output_underflow", False):
+                self._callback_flags["output_underflow"] += 1
+            if getattr(status, "output_overflow", False):
+                self._callback_flags["output_overflow"] += 1
+            if not getattr(status, "output_underflow", False) and not getattr(status, "output_overflow", False):
+                self._callback_flags["other"] += 1
+
         needed_bytes = frames * self._bytes_per_frame
         data = self._wav.readframes(frames)
         read_bytes = len(data)
@@ -205,6 +259,9 @@ class SoundDeviceAudio(AudioDevice):
             self._latency = max(0.0, time_info.outputBufferDacTime - time_info.currentTime)
         elif self._stream is not None:
             self._latency = self._stream.latency[1]
+
+    def callback_flags(self) -> Dict[str, int]:
+        return dict(self._callback_flags)
 
     def start(self) -> None:
         if not self._active:
@@ -334,6 +391,12 @@ class AudioClock:
             if current_time > self._last_time:
                 self._last_time = current_time
             return max(0.0, self._last_time)
+
+    def callback_flags(self) -> Dict[str, int]:
+        """Mengembalikan dictionary flag callback audio jika perangkat mendukung."""
+        if hasattr(self.device, "callback_flags"):
+            return self.device.callback_flags()
+        return {}
 
     def sleep_until(self, target_time: float) -> None:
         """Menunggu hingga jam mencapai target_time dengan interpolasi halus tanpa burst."""

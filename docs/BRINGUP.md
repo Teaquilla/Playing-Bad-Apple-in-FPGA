@@ -143,13 +143,17 @@ Untuk memvalidasi pemutaran video streaming dari PC ke FPGA Basys 3:
      ```
 
    - **Kasus B: Memutar Aliran Video Penuh (`data/stream_full.bin`):**
+     Pembuatan berkas aliran biner video lengkap dilakukan dengan skrip tracked `python/make_full_stream.py`:
+     ```powershell
+     .\.venv\Scripts\python.exe python/make_full_stream.py --frames 1000 --out data/stream_full.bin
+     ```
      Jika berkas aliran video lengkap digunakan, opsi `--start-frame 300` secara otomatis menyelaraskan audio ke sampel awal $300 / 30 \times 44.100 = 441.000$ (detik 10,0):
      ```powershell
-     .\.venv\Scripts\python.exe python/stream_player.py --fake-fpga --clip data/stream_full.bin --audio data/audio/bad_apple.wav --start-frame 300 --max-frames 90
+     .\.venv\Scripts\python.exe python/stream_player.py --fake-fpga --file data/stream_full.bin --audio data/audio/bad_apple.wav --start-frame 300 --max-frames 90
      ```
 
    *Catatan Evaluasi Waktu & Sinkronisasi [DIASUMSIKAN]:*
-   - Sampel ke-k WAV ($k \ge 1.024$) berada di waktu kontainer $k/44100 + 33,33\text{ ms}$; frame $n$ sejajar WAV pada $n/30$; default `--av-offset-ms = 0` [DIASUMSIKAN].
+   - Celah 1.470 sampel ada di timeline kontainer dan tidak diisi ffmpeg (WAV = 9.380 x 1.024 sampel kontigu); sampel ke-k ($k \ge 1.024$) berada di waktu kontainer $k/44100 + 33,33\text{ ms}$; frame $n$ di $33,33\text{ ms} + n/30$; maka frame $n$ sejajar WAV pada $n/30$ [DIASUMSIKAN]; default `--av-offset-ms = 0` [DIASUMSIKAN].
    - Video tampil di terminal sekitar [waktu kirim paket + waktu keluaran ASCII ~11,5 ms + latensi render terminal] setelah dikirim, sehingga offset kalibrasi di board kemungkinan bernilai negatif [DIASUMSIKAN sampai ada board fisik].
    - Penilaian akhir keselarasan sinkronisasi audio-video dilakukan secara subjektif oleh pengguna (mata dan telinga), bukan oleh skrip atau asisten.
 

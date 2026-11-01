@@ -23,33 +23,32 @@ Fitur:
 from __future__ import annotations
 import abc
 import os
+import sys
 import struct
 import threading
 import time
 from typing import Callable, List, Optional, Tuple, Dict, Any
 import numpy as np
 
-# Import modul internal Bad Apple
-try:
-    from python.stream_encoder import (
-        SOF_MARKER,
-        EOF_BYTE,
-        PAYLOAD_LEN_MIN,
-        PAYLOAD_LEN_MAX,
-        compute_checksum,
-        decode_rle_payload_to_canonical,
-    )
-    from python.ascii_renderer import render_ascii_frame, ASCII_FRAME_LEN
-except ImportError:
-    from stream_encoder import (
-        SOF_MARKER,
-        EOF_BYTE,
-        PAYLOAD_LEN_MIN,
-        PAYLOAD_LEN_MAX,
-        compute_checksum,
-        decode_rle_payload_to_canonical,
-    )
-    from ascii_renderer import render_ascii_frame, ASCII_FRAME_LEN
+import wave
+from pathlib import Path
+
+# Pastikan akar direktori repositori terdaftar di sys.path
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+# Import modul internal Bad Apple (gaya impor absolut konsisten)
+from python.stream_encoder import (
+    SOF_MARKER,
+    EOF_BYTE,
+    PAYLOAD_LEN_MIN,
+    PAYLOAD_LEN_MAX,
+    compute_checksum,
+    decode_rle_payload_to_canonical,
+)
+from python.ascii_renderer import render_ascii_frame, ASCII_FRAME_LEN
+from python.audio_player import SoundDeviceAudio, FakeAudioDevice, AudioClock
 
 
 # ==============================================================================
@@ -190,20 +189,7 @@ class MonotonicClock(Clock):
             time.sleep(delta)
 
 
-class AudioClock(Clock):
-    """Antarmuka abstrak jam audio untuk opsi A1 (pemutaran audio PC)."""
-
-    @abc.abstractmethod
-    def get_audio_time(self) -> float:
-        """Mengembalikan posisi pemutaran audio saat ini dalam detik."""
-        pass
-
-    def now(self) -> float:
-        return self.get_audio_time()
-
-    def sleep_until(self, target_time: float) -> None:
-        while self.now() < target_time:
-            time.sleep(0.001)
+# AudioClock diimpor langsung dari python.audio_player
 
 
 class FakeClock(Clock):
@@ -463,7 +449,7 @@ class StreamPlayer:
 
     def get_stats(self) -> Dict[str, Any]:
         """Mengembalikan statistik terkini pemutaran dan pembacaan stream."""
-        return {
+        stats = {
             "total_frames": self.total_frames_count,
             "sent_frames": self.sent_frames_count,
             "dropped_frames": self.dropped_frames_count,
@@ -475,6 +461,9 @@ class StreamPlayer:
             "clock_timestamps": list(self.clock_timestamps),
             "scheduled_timestamps": list(self.scheduled_timestamps),
         }
+        if hasattr(self.clock, "callback_flags"):
+            stats["audio_callback_flags"] = self.clock.callback_flags()
+        return stats
 
     def play_packets(
         self,
@@ -582,6 +571,26 @@ def main() -> None:
         help="Jalur berkas audio WAV untuk sinkronisasi pemutaran audio PC opsi A1 (default: None, menggunakan MonotonicClock).",
     )
     parser.add_argument(
+        "--audio-backend",
+        type=str,
+        choices=["sounddevice", "fake"],
+        default="sounddevice",
+        help="Backend pemutar audio: sounddevice (audio fisik nyata) atau fake (simulasi tanpa suara).",
+    )
+    parser.add_argument(
+        "--audio-hostapi",
+        type=str,
+        choices=["default", "mme", "directsound", "wasapi"],
+        default="default",
+        help="Host API audio PortAudio/sounddevice yang digunakan (default: default).",
+    )
+    parser.add_argument(
+        "--audio-device",
+        type=int,
+        default=None,
+        help="Indeks perangkat output audio spesifik (default: None, menggunakan perangkat default host API).",
+    )
+    parser.add_argument(
         "--audio-stall-ms",
         type=float,
         default=100.0,
@@ -651,7 +660,12 @@ def main() -> None:
     print(f"Laju Frame    : {args.fps} FPS")
     print(f"A/V Offset    : {args.av_offset_ms} ms [DIASUMSIKAN]")
     if args.audio:
-        print(f"Mode Jam      : AudioClock ({args.audio})")
+        if args.audio_backend == "fake":
+            print(f"Mode Jam      : AudioClock Fake ({args.audio})")
+        else:
+            api_str = f", HostAPI: {args.audio_hostapi}" if args.audio_hostapi != "default" else ""
+            dev_str = f", Dev: {args.audio_device}" if args.audio_device is not None else ""
+            print(f"Mode Jam      : AudioClock SoundDevice ({args.audio}{api_str}{dev_str})")
     else:
         print("Mode Jam      : MonotonicClock (Tanpa Audio)")
     print(f"Tampilan      : {'NONAKTIF (--no-display)' if args.no_display else 'AKTIF (sys.stdout.buffer)'}")
@@ -672,7 +686,6 @@ def main() -> None:
     # Inisialisasi Jam (Clock) & Audio
     audio_dev = None
     if args.audio:
-        from python.audio_player import SoundDeviceAudio, AudioClock
         if args.audio_start_sec is not None:
             audio_start_sec = args.audio_start_sec
         elif args.start_frame > 0:
@@ -681,7 +694,22 @@ def main() -> None:
             audio_start_sec = 0.0
 
         stall_sec = args.audio_stall_ms / 1000.0
-        audio_dev = SoundDeviceAudio(args.audio, start_sec=audio_start_sec)
+        if args.audio_backend == "fake":
+            sr = 44100
+            if os.path.exists(args.audio):
+                try:
+                    with wave.open(args.audio, "rb") as wf:
+                        sr = wf.getframerate()
+                except Exception:
+                    pass
+            audio_dev = FakeAudioDevice(sample_rate=sr, latency_sec=0.020, start_sec=audio_start_sec, auto_advance=True)
+        else:
+            audio_dev = SoundDeviceAudio(
+                args.audio,
+                start_sec=audio_start_sec,
+                hostapi=args.audio_hostapi,
+                device=args.audio_device,
+            )
         clock = AudioClock(audio_dev, stall_timeout_sec=stall_sec)
     else:
         clock = MonotonicClock()
@@ -705,11 +733,12 @@ def main() -> None:
     )
 
     try:
+        packets = split_stream_into_packets(stream_data)
         if audio_dev is not None:
             audio_dev.start()
 
-        player.play_stream(
-            stream_data,
+        player.play_packets(
+            packets,
             start_frame=args.start_frame,
             max_frames=args.max_frames
         )

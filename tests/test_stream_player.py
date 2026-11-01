@@ -622,3 +622,124 @@ def test_audio_clock_interpolation():
 
 
 
+
+
+# ------------------------------------------------------------------------------
+# Test (q): Kesetaraan Payload RLE Frame 300..389 Full Stream vs stream_clip.bin
+# ------------------------------------------------------------------------------
+def test_stream_full_payloads_match_golden_clip():
+    """Memverifikasi bahwa payload RLE frame 300..389 dari stream penuh identik
+    dengan 90 frame di data/golden/stream_clip.bin (FRAME_ID dan checksum diabaikan).
+    """
+    media_path = "media/Edit] Bad Apple!! but it's 2_1 aspect ratio.mp4"
+    if not os.path.exists(media_path):
+        pytest.skip(f"Berkas media video tidak ditemukan di: {media_path}")
+
+    clip_bin_path = os.path.join(GOLDEN_DIR, "stream_clip.bin")
+    if not os.path.exists(clip_bin_path):
+        pytest.skip(f"Berkas golden stream_clip.bin tidak ditemukan: {clip_bin_path}")
+
+    # Ekstrak payload dari stream_clip.bin
+    from python.stream_encoder import decode_packet
+    with open(clip_bin_path, "rb") as f:
+        clip_data = f.read()
+
+    clip_payloads = []
+    off = 0
+    while off < len(clip_data):
+        fid, payload, off = decode_packet(clip_data, off)
+        clip_payloads.append(payload)
+
+    assert len(clip_payloads) == 90, f"Jumlah frame golden clip {len(clip_payloads)} != 90"
+
+    # Periksa ketersediaan stream_full.bin atau generate frame 300..389
+    full_bin_path = "data/stream_full.bin"
+    if os.path.exists(full_bin_path) and os.path.getsize(full_bin_path) > 50000:
+        with open(full_bin_path, "rb") as f:
+            full_data = f.read()
+        full_payloads = []
+        off = 0
+        while off < len(full_data):
+            fid, payload, off = decode_packet(full_data, off)
+            full_payloads.append((fid, payload))
+            if len(full_payloads) >= 390:
+                break
+        assert len(full_payloads) >= 390, f"stream_full.bin hanya memiliki {len(full_payloads)} frame, butuh minimal 390"
+        full_slice = [p[1] for p in full_payloads[300:390]]
+    else:
+        from python.extractor import extract_frames
+        from python.canonical import pack_frame
+        from python.stream_encoder import encode_canonical_frame
+        # Ekstrak frame 300..389 (t=10.0s..13.0s)
+        frames, _ = extract_frames(media_path, target_fps=30, start_sec=10.0, duration_sec=3.0, threshold=128)
+        full_slice = []
+        for i, f in enumerate(frames):
+            pkt = encode_canonical_frame(300 + i, pack_frame(f))
+            _, payload, _ = decode_packet(pkt, 0)
+            full_slice.append(payload)
+
+    assert len(full_slice) == len(clip_payloads) == 90
+    mismatches = [i for i in range(90) if full_slice[i] != clip_payloads[i]]
+    assert not mismatches, f"Terdapat {len(mismatches)} ketidakcocokan payload pada indeks frame: {mismatches}"
+
+
+# ------------------------------------------------------------------------------
+# Test (r): Smoke Test CLI stream_player via Subprocess
+# ------------------------------------------------------------------------------
+def test_cli_subprocess_smoke_tests(tmp_path):
+    """Memverifikasi pemanggilan CLI stream_player lewat subprocess dari terminal bersih
+    baik dengan format skrip langsung maupun modul '-m python.stream_player'.
+    """
+    import subprocess
+    import sys
+    import wave
+    from pathlib import Path
+    repo_root = str(Path(__file__).resolve().parent.parent)
+
+    # Buat dummy WAV singkat 100 ms
+    wav_path = tmp_path / "test_smoke.wav"
+    with wave.open(str(wav_path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(44100)
+        wf.writeframes(b"\x00\x00" * 4410)
+
+    clip_file = "data/golden/stream_clip.bin"
+
+    # (a) python python/stream_player.py --help
+    cmd_a = [sys.executable, "python/stream_player.py", "--help"]
+    res_a = subprocess.run(cmd_a, cwd=repo_root, capture_output=True, text=True)
+    assert res_a.returncode == 0, f"Smoke test (a) gagal: {res_a.stderr}"
+    assert "usage: stream_player.py" in res_a.stdout
+
+    # (b) ... --fake-fpga --file data/golden/stream_clip.bin --max-frames 3 --no-display
+    cmd_b = [
+        sys.executable, "python/stream_player.py",
+        "--fake-fpga", "--file", clip_file,
+        "--max-frames", "3", "--no-display"
+    ]
+    res_b = subprocess.run(cmd_b, cwd=repo_root, capture_output=True, text=True)
+    assert res_b.returncode == 0, f"Smoke test (b) gagal: {res_b.stderr}"
+    assert "Frame Terkirim: 3" in res_b.stdout
+
+    # (c) idem dengan --audio <WAV> --audio-backend fake
+    cmd_c = [
+        sys.executable, "python/stream_player.py",
+        "--fake-fpga", "--file", clip_file,
+        "--max-frames", "3", "--no-display",
+        "--audio", str(wav_path), "--audio-backend", "fake"
+    ]
+    res_c = subprocess.run(cmd_c, cwd=repo_root, capture_output=True, text=True)
+    assert res_c.returncode == 0, f"Smoke test (c) gagal: {res_c.stderr}"
+    assert "Frame Terkirim: 3" in res_c.stdout
+
+    # (d) gaya -m python.stream_player
+    cmd_d = [
+        sys.executable, "-m", "python.stream_player",
+        "--fake-fpga", "--file", clip_file,
+        "--max-frames", "3", "--no-display",
+        "--audio", str(wav_path), "--audio-backend", "fake"
+    ]
+    res_d = subprocess.run(cmd_d, cwd=repo_root, capture_output=True, text=True)
+    assert res_d.returncode == 0, f"Smoke test (d) gagal: {res_d.stderr}"
+    assert "Frame Terkirim: 3" in res_d.stdout

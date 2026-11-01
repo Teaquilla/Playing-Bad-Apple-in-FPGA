@@ -194,12 +194,12 @@ Anggaran satu frame pada 30 fps adalah 33,3 ms. 115200 baud tidak cukup. 921600 
 Sesuai keputusan tim D-5 (2026-10-31), parameter audio hardware ditetapkan pada **PCM 8-bit 8 kHz mono unsigned** (titik tengah 128, ukuran total 217,84 s $\times$ 8.000 B = 1.742.720 Byte / 13,94 Mbit).
 - **Konsekuensi Jalur Output A2 (Audio dari FPGA):** Masuk: aliran sampel PCM 8-bit 8 kHz pada laju `sample_tick`. Keluar: 1 pin PMOD (PWM atau sigma-delta) + filter rekonstruksi RC di luar FPGA + earphone [DIASUMSIKAN sampai ada rangkaian fisik dan batas arus pin diverifikasi dari datasheet]. Logika dekoder ADPCM di hardware dieliminasi penuh sehingga hemat logika.
 - **Konsekuensi Jalur Output A1 (Audio dari PC Host):**
-  - Status Jalur A1: **implementasi selesai; belum diuji dengan perangkat audio nyata (lihat B.5); sinkron audio-video belum dinilai pengguna**.
+  - Status Jalur A1: **diuji di PC nyata (Realtek, MME, 20 s, tanpa board); sinkron audio-video: sinkron (penilaian pengguna)**.
   - Pemutaran audio di PC menggunakan berkas audio asli PCM 16-bit 44,1 kHz stereo (`data/audio/bad_apple.wav`) dan **TIDAK terpengaruh oleh D-5**. Jalur A1 tidak memerlukan modul hardware FPGA ini.
   - Implementasi host PC (`python/audio_player.py`): Menggunakan `sounddevice.RawOutputStream` dengan buffer callback Python (tanpa dependensi numpy pada callback) untuk latency rendah.
   - Sinkronisasi Jam (`AudioClock`): Waktu acuan streaming dihitung dari sampel fisik yang telah keluar dari DAC dengan interpolasi mikrodetik dan fallback anti-stall:
     $$\text{now}() = \text{start\_sec} + \frac{\text{frames\_played}}{\text{sample\_rate}} - \text{output\_latency} + \Delta t_{\text{interp}}$$
-  - [DIASUMSIKAN]: sampel ke-k WAV (k >= 1.024) berada di waktu kontainer k/44100 + 33,33 ms; frame n sejajar WAV pada n/30; default --av-offset-ms = 0.
+  - [DIASUMSIKAN]: celah 1.470 sampel ada di timeline kontainer dan tidak diisi ffmpeg (WAV = 9.380 x 1.024 sampel kontigu); sampel ke-k (k >= 1.024) berada di waktu kontainer k/44100 + 33,33 ms; frame n di 33,33 ms + n/30; maka frame n sejajar WAV pada n/30 [DIASUMSIKAN]; default --av-offset-ms = 0.
   - Video tampil di terminal sekitar [waktu kirim paket + waktu keluaran ASCII ~11,5 ms + latensi render terminal] setelah dikirim, sehingga offset kalibrasi di board kemungkinan negatif [DIASUMSIKAN sampai ada board].
   - Bila opsi `--audio` tidak disertakan pada `stream_player.py`, sistem beralih otomatis ke jam lokal `MonotonicClock` bawaan OS.
 
