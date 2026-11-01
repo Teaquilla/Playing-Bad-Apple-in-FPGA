@@ -32,7 +32,7 @@ architecture sim of tb_uart_rx is
     signal rx_count : integer := 0;
     signal last_rx_byte : std_logic_vector(7 downto 0) := (others => '0');
 
-    type byte_arr_real_t is array (0 to 15) of std_logic_vector(7 downto 0);
+    type byte_arr_real_t is array (0 to 31) of std_logic_vector(7 downto 0);
     signal rx_buf_real : byte_arr_real_t := (others => (others => '0'));
 
     -- Prosedur pengirim serial byte 8N1
@@ -106,7 +106,7 @@ begin
             if rst = '1' then
                 rx_count <= 0;
             elsif m_valid = '1' then
-                if rx_count < 16 then
+                if rx_count < 32 then
                     rx_buf_real(rx_count) <= m_data;
                 end if;
                 rx_count <= rx_count + 1;
@@ -154,42 +154,45 @@ begin
             report "Gagal: byte 4 bukan 0xED" severity error;
         report "PASS: nominal 921600 baud (4 byte terverifikasi: 55, AA, 5A, ED)";
 
-        -- Test 5: Pengirim dengan galat baud -3% (transmisi lebih cepat)
-        send_byte(rx, x"3C", BIT_TIME_921K * 97 / 100);
-        wait for 500 ns;
-        assert rx_count = 5 and last_rx_byte = x"3C"
-            report "Gagal pada galat baud -3%: byte 5 bukan 0x3C" severity error;
-        report "PASS: baud error -3% (byte 0x3C terverifikasi)";
+        -- Test 5: Pengirim dengan galat baud -3% (transmisi lebih cepat: ~1053 ns)
+        send_byte(rx, x"00", BIT_TIME_921K * 97 / 100);
+        send_byte(rx, x"55", BIT_TIME_921K * 97 / 100);
+        send_byte(rx, x"80", BIT_TIME_921K * 97 / 100);
+        send_byte(rx, x"FF", BIT_TIME_921K * 97 / 100);
+        wait for 2 us;
+        assert rx_count = 8 and rx_buf_real(4) = x"00" and rx_buf_real(5) = x"55" and rx_buf_real(6) = x"80" and rx_buf_real(7) = x"FF"
+            report "Gagal pada galat baud -3%: byte {0x00, 0x55, 0x80, 0xFF} tidak diterima dengan benar (rx_count=" & integer'image(rx_count) & ")!" severity failure;
+        report "PASS: baud error -3% (4 byte {00, 55, 80, FF} terverifikasi byte-exact)";
 
-        -- Test 6: Pengirim dengan galat baud -2% (transmisi lebih cepat)
-        send_byte(rx, x"A5", BIT_TIME_921K * 98 / 100);
-        wait for 500 ns;
-        assert rx_count = 6 and last_rx_byte = x"A5"
-            report "Gagal pada galat baud -2%: byte 6 bukan 0xA5" severity error;
-        report "PASS: baud error -2% (byte 0xA5 terverifikasi)";
+        -- Test 6: Pengirim dengan galat baud -2% (transmisi lebih cepat: ~1063 ns)
+        send_byte(rx, x"00", BIT_TIME_921K * 98 / 100);
+        send_byte(rx, x"55", BIT_TIME_921K * 98 / 100);
+        send_byte(rx, x"80", BIT_TIME_921K * 98 / 100);
+        send_byte(rx, x"FF", BIT_TIME_921K * 98 / 100);
+        wait for 2 us;
+        assert rx_count = 12 and rx_buf_real(8) = x"00" and rx_buf_real(9) = x"55" and rx_buf_real(10) = x"80" and rx_buf_real(11) = x"FF"
+            report "Gagal pada galat baud -2%: byte {0x00, 0x55, 0x80, 0xFF} tidak diterima dengan benar (rx_count=" & integer'image(rx_count) & ")!" severity failure;
+        report "PASS: baud error -2% (4 byte {00, 55, 80, FF} terverifikasi byte-exact)";
 
-        -- Test 7: Pengirim dengan galat baud +2% (transmisi lebih lambat)
-        send_byte(rx, x"C3", BIT_TIME_921K * 102 / 100);
-        wait for 500 ns;
-        assert rx_count = 7 and last_rx_byte = x"C3"
-            report "Gagal pada galat baud +2%: byte 7 bukan 0xC3" severity error;
-        report "PASS: baud error +2% (byte 0xC3 terverifikasi)";
+        -- Test 7: Pengirim dengan galat baud +2% (transmisi lebih lambat: ~1107 ns)
+        send_byte(rx, x"00", BIT_TIME_921K * 102 / 100);
+        send_byte(rx, x"55", BIT_TIME_921K * 102 / 100);
+        send_byte(rx, x"80", BIT_TIME_921K * 102 / 100);
+        send_byte(rx, x"FF", BIT_TIME_921K * 102 / 100);
+        wait for 2 us;
+        assert rx_count = 16 and rx_buf_real(12) = x"00" and rx_buf_real(13) = x"55" and rx_buf_real(14) = x"80" and rx_buf_real(15) = x"FF"
+            report "Gagal pada galat baud +2%: byte {0x00, 0x55, 0x80, 0xFF} tidak diterima dengan benar (rx_count=" & integer'image(rx_count) & ")!" severity failure;
+        report "PASS: baud error +2% (4 byte {00, 55, 80, FF} terverifikasi byte-exact)";
 
-        -- Test 8: Pengirim dengan galat baud +3% (transmisi lebih lambat)
-        send_byte(rx, x"96", BIT_TIME_921K * 103 / 100);
-        wait for 500 ns;
-        assert rx_count = 8 and last_rx_byte = x"96"
-            report "Gagal pada galat baud +3%: byte 8 bukan 0x96" severity error;
-        report "PASS: baud error +3% (byte 0x96 terverifikasi)";
-
-        -- Test 8b: Uji baud riil dengan periode bit 1100 ns (+1.38%) untuk byte MSB=0 (0x00 dan 0x55)
-        -- Menguji toleransi stop bit pada laju baud lambat saat bit data terakhir bernilai '0'.
-        send_byte(rx, x"00", 1100 ns);
-        send_byte(rx, x"55", 1100 ns);
-        wait for 3 us;
-        assert rx_count = 10 and rx_buf_real(8) = x"00" and rx_buf_real(9) = x"55"
-            report "Gagal pada baud 1100 ns (MSB=0): byte 0x00 atau 0x55 tidak diterima dengan benar (rx_count=" & integer'image(rx_count) & ")!" severity failure;
-        report "PASS: baud error 1100 ns (+1.38%, byte MSB=0: 0x00 dan 0x55 terverifikasi byte-exact)";
+        -- Test 8: Pengirim dengan galat baud +3% (transmisi lebih lambat: ~1118 ns)
+        send_byte(rx, x"00", BIT_TIME_921K * 103 / 100);
+        send_byte(rx, x"55", BIT_TIME_921K * 103 / 100);
+        send_byte(rx, x"80", BIT_TIME_921K * 103 / 100);
+        send_byte(rx, x"FF", BIT_TIME_921K * 103 / 100);
+        wait for 2 us;
+        assert rx_count = 20 and rx_buf_real(16) = x"00" and rx_buf_real(17) = x"55" and rx_buf_real(18) = x"80" and rx_buf_real(19) = x"FF"
+            report "Gagal pada galat baud +3%: byte {0x00, 0x55, 0x80, 0xFF} tidak diterima dengan benar (rx_count=" & integer'image(rx_count) & ")!" severity failure;
+        report "PASS: baud error +3% (4 byte {00, 55, 80, FF} terverifikasi byte-exact)";
 
         -- Test 9: Sapuan Robustness 25 MHz: Offset 0..9 ns x Periode {38, 39, 40, 41, 42} ns
         -- Menguji 50 kombinasi offset fasa dan toleransi periode bit untuk 4 byte back-to-back (55, AA, 5A, 00).

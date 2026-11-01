@@ -84,8 +84,9 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context`):
    - Waktu muat bitstream flash onboard hanya disajikan sebagai rumus dengan syarat nilai `CONFIGRATE`:
      $$\text{Waktu Muat} = \frac{\text{Ukuran Bitstream (bit)}}{\text{CONFIGRATE (Hz)} \times \text{SPI\_BUSWIDTH (bit/siklus)}}$$
      Pada `SPI_BUSWIDTH = 4`:
-     - Jika `CONFIGRATE = 3 MHz` (nilai default Artix-7 [DIASUMSIKAN]): bitstream terkompresi (590.304 B = 4.722.432 bit) membutuhkan waktu $\approx 0,394\text{ detik}$; uncompressed (2.192.012 B = 17.536.096 bit) membutuhkan waktu $\approx 1,461\text{ detik}$.
-     - Jika `CONFIGRATE = 33 MHz` (opsi master SPI Basys 3): bitstream terkompresi membutuhkan waktu $\approx 35,8\text{ ms}$.
+     - Jika `CONFIGRATE = 3 MHz` (nilai default Artix-7 [DIASUMSIKAN]): bitstream terkompresi M2b (618.468 B = 4.947.744 bit, naik +4,77% dari 590.304 B [penyebab: penambahan logika & routing menurunkan kompresibilitas frame konfigurasi [DIASUMSIKAN]]) membutuhkan waktu $\approx 0,412\text{ detik}$; uncompressed (2.192.012 B = 17.536.096 bit) membutuhkan waktu $\approx 1,461\text{ detik}$.
+     - Jika `CONFIGRATE = 33 MHz` (opsi master SPI Basys 3): bitstream terkompresi M2b membutuhkan waktu $\approx 37,5\text{ ms}$.
+   - **Kapasitas Flash Standalone (D-9):** Total kebutuhan memori flash standalone = Video RLE (14,09 Mbit) + Audio PCM 8 kHz 8-bit (13,94 Mbit) + Bitstream terkompresi M2b (4,95 Mbit) = **32,98 Mbit** (4.121.946 B). Pada chip SPI Flash onboard Basys 3 (Spansion S25FL032P berkapasitas 32 Mibit = 33,55 Mbit = 4.194.304 B), alokasi ini muat dengan sisa margin **72.358 Byte** (**70,6 KB** / 1,72%) [DIVERIFIKASI: perhitungan matematis]. Catatan: terhadap batas desimal nominal 32,00 Mbit, nilainya melebihi 0,98 Mbit.
 
 4. **Utilisasi Hardware Top-Level (Routed):**
    - **Total Terukur [DIVERIFIKASI: `vivado/build_m2b/utilization.rpt`]:**

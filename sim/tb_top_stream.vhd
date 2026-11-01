@@ -203,14 +203,14 @@ begin
                 if RsTx_fast = '1' then
                     cnt := cnt + 1;
                     uji3_byte_cnt <= cnt;
-                    if cnt <= 1059 and not endfile(gold_file) then
+                    if cnt <= 95310 and not endfile(gold_file) then
                         readline(gold_file, gold_line);
                         hread(gold_line, gold_byte);
                         if rx_val /= gold_byte then
                             mism := mism + 1;
                         end if;
                     end if;
-                    if cnt = 1059 then
+                    if cnt = 95310 then
                         uji3_done <= true;
                     end if;
                 end if;
@@ -249,14 +249,14 @@ begin
                 if RsTx_fast = '1' then
                     cnt := cnt + 1;
                     uji4_byte_cnt <= cnt;
-                    if cnt <= 1059 and not endfile(gold_file) then
+                    if cnt <= 95310 and not endfile(gold_file) then
                         readline(gold_file, gold_line);
                         hread(gold_line, gold_byte);
                         if rx_val /= gold_byte then
                             mism := mism + 1;
                         end if;
                     end if;
-                    if cnt = 1059 then
+                    if cnt = 95310 then
                         uji4_done <= true;
                     end if;
                 end if;
@@ -391,37 +391,82 @@ begin
         btnC <= '0';
         wait for 200 ns;
 
-        -- 3. Uji Vektor False SOF: stream_false_sof.hex (fake SOF + Frame 0 = 372 byte)
-        report "=== [TB_TOP_STREAM] Uji 3: Umpankan stream_false_sof.hex ===";
+        -- 3. Uji Vektor False SOF: stream_false_sof.hex (fake SOF + Full 90 Frame = 18.934 byte)
+        report "=== [TB_TOP_STREAM] Uji 3: Umpankan stream_false_sof.hex (Full 90 Frame) ===";
         uji3_start <= true;
         file_open(stream_file, "data/golden/stream_false_sof.hex", read_mode);
-        for i in 1 to 372 loop
+
+        -- Kirim 25 byte paket SOF palsu (3B SOF + 2B FID + 2B LEN=16 + 16B payload + 2B bad footer)
+        for i in 1 to 25 loop
             readline(stream_file, stream_line);
             hread(stream_line, p_byte);
             uart_send_byte(RsRx_fast, p_byte, BIT_TIME_25M);
         end loop;
+        wait for 2 us;
+
+        -- Kirim 90 frame valid sejati
+        for pkt in 0 to 89 loop
+            -- Baca Header Paket (3B SOF + 2B FRAME_ID + 2B PAYLOAD_LEN)
+            readline(stream_file, stream_line); hread(stream_line, b0);
+            readline(stream_file, stream_line); hread(stream_line, b1);
+            readline(stream_file, stream_line); hread(stream_line, b2);
+            readline(stream_file, stream_line); hread(stream_line, b3);
+            readline(stream_file, stream_line); hread(stream_line, b4);
+            readline(stream_file, stream_line); hread(stream_line, b5);
+            readline(stream_file, stream_line); hread(stream_line, b6);
+
+            payload_len := to_integer(unsigned(b5 & b6));
+
+            uart_send_byte(RsRx_fast, b0, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, b1, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, b2, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, b3, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, b4, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, b5, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, b6, BIT_TIME_25M);
+
+            -- Kirim Payload
+            for i in 0 to payload_len - 1 loop
+                readline(stream_file, stream_line);
+                hread(stream_line, p_byte);
+                uart_send_byte(RsRx_fast, p_byte, BIT_TIME_25M);
+            end loop;
+
+            -- Kirim Footer & Checksum
+            readline(stream_file, stream_line); hread(stream_line, eof_b);
+            readline(stream_file, stream_line); hread(stream_line, chk_b);
+            uart_send_byte(RsRx_fast, eof_b, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, chk_b, BIT_TIME_25M);
+
+            -- Tunggu swap dieksekusi dan sink selesai mentransmisikan ASCII frame ini
+            if led_fast(2) /= '1' then
+                wait until led_fast(2) = '1' for 10 us;
+            end if;
+            if led_fast(2) = '1' then
+                wait until led_fast(2) = '0';
+            end if;
+            wait for 200 ns;
+        end loop;
         file_close(stream_file);
+
         if not uji3_done then
-            wait until uji3_done for 5 ms;
+            wait until uji3_done for 10 ms;
         end if;
         assert uji3_done
-            report "Timeout menunggu 1.059 byte Frame 0 ASCII pada Uji 3!" severity failure;
+            report "Timeout menunggu 95.310 byte keluaran ASCII pada Uji 3!" severity failure;
         assert uji3_mismatch = 0
-            report "Ada ketidakcocokan byte ASCII pada Uji 3 terhadap Frame 0 ascii.hex!" severity failure;
-        -- Verifikasi tidak ada byte ASCII ekstra setelah 1.059 byte (tunggu >= 2 periode frame = 1 ms)
+            report "Ada ketidakcocokan byte ASCII pada Uji 3 terhadap data/golden/ascii.hex!" severity failure;
         wait for 1 ms;
-        assert uji3_byte_cnt = 1059
-            report "Ada byte ASCII ekstra setelah 1.059 byte pada Uji 3 (terhitung: " & integer'image(uji3_byte_cnt) & ")!" severity failure;
+        assert uji3_byte_cnt = 95310
+            report "Ada ketidakcocokan jumlah byte ASCII pada Uji 3 (terhitung: " & integer'image(uji3_byte_cnt) & ")!" severity failure;
         uji3_stop <= true;
         if led_fast(2) = '1' then
             wait until led_fast(2) = '0';
         end if;
         wait for 1 us;
-        -- Verifikasi metrik stream_expected.txt untuk stream_false_sof:
-        -- VALID_FRAMES bertambah 1 (Frame 0), LENGTH_ERRORS bertambah 1 (false SOF terdeteksi via length/timeout err),
-        -- CHECKSUM_ERRORS tetap 1, RUN_ERRORS tetap 0, RESYNCS bertambah (resync SOF asli).
-        assert to_integer(val_cnt_fast) = 1
-            report "Uji 3: valid_frames bukan 1 (terbaca: " & integer'image(to_integer(val_cnt_fast)) & ")!" severity failure;
+        -- Verifikasi kriteria stream_expected.txt untuk stream_false_sof:
+        assert to_integer(val_cnt_fast) = 90
+            report "Uji 3: valid_frames bukan 90 (terbaca: " & integer'image(to_integer(val_cnt_fast)) & ")!" severity failure;
         assert to_integer(err_chk_cnt_fast) = 0
             report "Uji 3: chk_errors bukan 0 (terbaca: " & integer'image(to_integer(err_chk_cnt_fast)) & ")!" severity failure;
         assert to_integer(err_len_cnt_fast) = 1
@@ -430,7 +475,7 @@ begin
             report "Uji 3: run_errors bukan 0!" severity failure;
         assert to_integer(err_res_cnt_fast) = 2
             report "Uji 3: resyncs bukan 2 (terbaca: " & integer'image(to_integer(err_res_cnt_fast)) & ")!" severity failure;
-        report "Uji 3 Sukses: Paket false SOF berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B, val=1, chk=0, len=1, run=0, res=2 mutlak manifes)!";
+        report "Uji 3 Sukses: 95.310 byte (90 frame) cocok 100% byte-exact terhadap ascii.hex, val=90, chk=0, len=1, run=0, res=2 mutlak manifes!";
 
         -- Reset penghitung sebelum Uji 4 untuk verifikasi metrik mutlak manifes (stream_expected.txt)
         btnC <= '1';
@@ -439,37 +484,82 @@ begin
         btnC <= '0';
         wait for 200 ns;
 
-        -- 4. Uji Vektor Byte Insertion: stream_byte_insertion.hex (garbage 6B + Frame 0 347B = 353 byte)
-        report "=== [TB_TOP_STREAM] Uji 4: Umpankan stream_byte_insertion.hex ===";
+        -- 4. Uji Vektor Byte Insertion: stream_byte_insertion.hex (garbage 6B + Full 90 Frame = 18.915 byte)
+        report "=== [TB_TOP_STREAM] Uji 4: Umpankan stream_byte_insertion.hex (Full 90 Frame) ===";
         uji4_start <= true;
         file_open(stream_file, "data/golden/stream_byte_insertion.hex", read_mode);
-        for i in 1 to 353 loop
+
+        -- Kirim 6 byte sampah awal
+        for i in 1 to 6 loop
             readline(stream_file, stream_line);
             hread(stream_line, p_byte);
             uart_send_byte(RsRx_fast, p_byte, BIT_TIME_25M);
         end loop;
+        wait for 1 us;
+
+        -- Kirim 90 frame valid sejati
+        for pkt in 0 to 89 loop
+            -- Baca Header Paket (3B SOF + 2B FRAME_ID + 2B PAYLOAD_LEN)
+            readline(stream_file, stream_line); hread(stream_line, b0);
+            readline(stream_file, stream_line); hread(stream_line, b1);
+            readline(stream_file, stream_line); hread(stream_line, b2);
+            readline(stream_file, stream_line); hread(stream_line, b3);
+            readline(stream_file, stream_line); hread(stream_line, b4);
+            readline(stream_file, stream_line); hread(stream_line, b5);
+            readline(stream_file, stream_line); hread(stream_line, b6);
+
+            payload_len := to_integer(unsigned(b5 & b6));
+
+            uart_send_byte(RsRx_fast, b0, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, b1, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, b2, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, b3, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, b4, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, b5, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, b6, BIT_TIME_25M);
+
+            -- Kirim Payload
+            for i in 0 to payload_len - 1 loop
+                readline(stream_file, stream_line);
+                hread(stream_line, p_byte);
+                uart_send_byte(RsRx_fast, p_byte, BIT_TIME_25M);
+            end loop;
+
+            -- Kirim Footer & Checksum
+            readline(stream_file, stream_line); hread(stream_line, eof_b);
+            readline(stream_file, stream_line); hread(stream_line, chk_b);
+            uart_send_byte(RsRx_fast, eof_b, BIT_TIME_25M);
+            uart_send_byte(RsRx_fast, chk_b, BIT_TIME_25M);
+
+            -- Tunggu swap dieksekusi dan sink selesai mentransmisikan ASCII frame ini
+            if led_fast(2) /= '1' then
+                wait until led_fast(2) = '1' for 10 us;
+            end if;
+            if led_fast(2) = '1' then
+                wait until led_fast(2) = '0';
+            end if;
+            wait for 200 ns;
+        end loop;
         file_close(stream_file);
+
         if not uji4_done then
-            wait until uji4_done for 5 ms;
+            wait until uji4_done for 10 ms;
         end if;
         assert uji4_done
-            report "Timeout menunggu 1.059 byte Frame 0 ASCII pada Uji 4!" severity failure;
+            report "Timeout menunggu 95.310 byte keluaran ASCII pada Uji 4!" severity failure;
         assert uji4_mismatch = 0
-            report "Ada ketidakcocokan byte ASCII pada Uji 4 terhadap Frame 0 ascii.hex!" severity failure;
-        -- Verifikasi tidak ada byte ASCII ekstra setelah 1.059 byte (tunggu >= 2 periode frame = 1 ms)
+            report "Ada ketidakcocokan byte ASCII pada Uji 4 terhadap data/golden/ascii.hex!" severity failure;
         wait for 1 ms;
-        assert uji4_byte_cnt = 1059
-            report "Ada byte ASCII ekstra setelah 1.059 byte pada Uji 4 (terhitung: " & integer'image(uji4_byte_cnt) & ")!" severity failure;
+        assert uji4_byte_cnt = 95310
+            report "Ada ketidakcocokan jumlah byte ASCII pada Uji 4 (terhitung: " & integer'image(uji4_byte_cnt) & ")!" severity failure;
         uji4_stop <= true;
         if led_fast(2) = '1' then
             wait until led_fast(2) = '0';
         end if;
         wait for 1 us;
-        -- Verifikasi metrik stream_expected.txt untuk stream_byte_insertion:
-        -- VALID_FRAMES bertambah 1 (Frame 0), RESYNCS bertambah 1 (sampah 6B sebelum SOF),
-        -- CHECKSUM_ERRORS tetap 1, LENGTH_ERRORS tetap 1, RUN_ERRORS tetap 0.
-        assert to_integer(val_cnt_fast) = 1
-            report "Uji 4: valid_frames bukan 1 (terbaca: " & integer'image(to_integer(val_cnt_fast)) & ")!" severity failure;
+        -- Verifikasi kriteria stream_expected.txt untuk stream_byte_insertion:
+        assert to_integer(val_cnt_fast) = 90
+            report "Uji 4: valid_frames bukan 90 (terbaca: " & integer'image(to_integer(val_cnt_fast)) & ")!" severity failure;
         assert to_integer(err_chk_cnt_fast) = 0
             report "Uji 4: chk_errors bukan 0!" severity failure;
         assert to_integer(err_len_cnt_fast) = 0
@@ -478,7 +568,7 @@ begin
             report "Uji 4: run_errors bukan 0!" severity failure;
         assert to_integer(err_res_cnt_fast) = 1
             report "Uji 4: resyncs bukan 1 (terbaca: " & integer'image(to_integer(err_res_cnt_fast)) & ")!" severity failure;
-        report "Uji 4 Sukses: Paket disisipi byte sampah berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B, val=1, chk=0, len=0, run=0, res=1 mutlak manifes)!";
+        report "Uji 4 Sukses: 95.310 byte (90 frame) cocok 100% byte-exact terhadap ascii.hex, val=90, chk=0, len=0, run=0, res=1 mutlak manifes!";
 
         -- Tunggu penyelesaian uji real-time pendek (921.600 baud)
         if not real_test_done then
