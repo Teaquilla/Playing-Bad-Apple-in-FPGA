@@ -83,8 +83,8 @@ Legenda status: `[ ]` belum, `[~]` berjalan, `[x]` selesai dan terverifikasi.
 
 | ID | Tugas | Verifikasi | Status |
 |---|---|---|---|
-| T3.1 | **GATE:** tutup D-3 (pemegang waktu) dan D-5 (parameter audio) | Dicatat | [ ] |
-| T3.2 | A1: pemutar audio PC yang dimulai sinkron dengan video | Selisih audio-video diukur dan sesuai SPEC bagian 7 | [ ] |
+| T3.1 | **GATE:** tutup D-3 (pemegang waktu) dan D-5 (parameter audio) | Dicatat | [x] |
+| T3.2 | A1: pemutar audio PC yang dimulai sinkron dengan video | Selisih audio-video diukur dan sesuai SPEC bagian 7; implementasi di `python/audio_player.py` dan `python/stream_player.py --audio` diverifikasi di tes unit boardless | [x] |
 | T3.3 | Riset dan usulan rangkaian A2 (resistor seri, kapasitor DC-blocking, filter RC) | Skema dan nilai komponen diajukan | [ ] |
 | T3.4 | **GATE:** review manusia atas rangkaian sebelum dihubungkan | Persetujuan tercatat | [ ] |
 | T3.5 | `audio_out` (PWM/sigma-delta) dan testbench | Spektrum/keluaran simulasi sesuai sampel masukan | [ ] |

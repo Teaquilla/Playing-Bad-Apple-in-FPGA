@@ -3,6 +3,7 @@ Pengujian unit deterministik untuk python/stream_player.py (Milestone M2 & TASKS
 """
 
 import os
+import threading
 import time
 import pytest
 
@@ -12,12 +13,12 @@ from python.stream_player import (
     SerialTransport,
     FakeTransport,
     MonotonicClock,
-    AudioClock,
     FakeClock,
     FakeFPGA,
     StreamPlayer,
     split_stream_into_packets,
 )
+from python.audio_player import FakeAudioDevice, AudioClock
 from python.stream_encoder import encode_packet
 
 
@@ -101,9 +102,12 @@ def test_concurrent_read_write_no_deadlock():
     transport = FakeTransport(fake_fpga=fpga)
     clock = FakeClock()
     captured_chunks = []
+    done_event = threading.Event()
 
     def on_output(chunk: bytes):
         captured_chunks.append(chunk)
+        if sum(len(c) for c in captured_chunks) >= 20 * 1059:
+            done_event.set()
 
     player = StreamPlayer(
         transport=transport,
@@ -117,11 +121,8 @@ def test_concurrent_read_write_no_deadlock():
     t_start = time.monotonic()
     stats = player.play_packets(packets)
 
-    # Tunggu seluruh output ASCII terbaca oleh background reader
-    for _ in range(50):
-        if sum(len(c) for c in captured_chunks) >= 20 * 1059:
-            break
-        time.sleep(0.01)
+    # Tunggu seluruh output ASCII terbaca oleh background reader via Event
+    assert done_event.wait(timeout=1.5), "Timeout menunggu seluruh paket ASCII terbaca"
 
     player.stop_reader(timeout=1.0)
     elapsed = time.monotonic() - t_start
@@ -155,9 +156,12 @@ def test_ascii_90_frames_byte_exact():
     transport = FakeTransport(fake_fpga=fpga)
     clock = FakeClock()
     received_bytes = bytearray()
+    done_event = threading.Event()
 
     def on_output(data: bytes):
         received_bytes.extend(data)
+        if len(received_bytes) >= 95310:
+            done_event.set()
 
     player = StreamPlayer(
         transport=transport,
@@ -168,11 +172,8 @@ def test_ascii_90_frames_byte_exact():
 
     stats = player.play_stream(stream_data)
 
-    # Pastikan seluruh 90 frame terproses oleh reader
-    for _ in range(100):
-        if len(received_bytes) >= 95310:
-            break
-        time.sleep(0.01)
+    # Tunggu seluruh 90 frame terproses oleh reader via Event
+    assert done_event.wait(timeout=2.0), "Timeout menunggu seluruh 90 frame ASCII terbaca"
 
     player.stop_reader()
 
@@ -185,22 +186,29 @@ def test_ascii_90_frames_byte_exact():
 
 
 # ------------------------------------------------------------------------------
-# Test (e): Opsi --no-audio
+# Test (e): Mode Default MonotonicClock
 # ------------------------------------------------------------------------------
 def test_no_audio_mode():
-    """Memverifikasi bahwa player bekerja pada mode --no-audio menggunakan MonotonicClock."""
+    """Memverifikasi bahwa player bekerja pada mode default jam MonotonicClock dengan jadwal presisi."""
     transport = FakeTransport()
-    # Inisialisasi default tanpa audio clock
+    # Inisialisasi default tanpa clock khusus -> MonotonicClock
     player = StreamPlayer(transport=transport, clock=None, fps=30.0)
     assert isinstance(player.clock, MonotonicClock)
 
-    # Tes pemutaran 2 frame cepat
-    packets = [make_dummy_packet(0), make_dummy_packet(1)]
+    # Uji pengiriman 3 frame dengan jam nyata
+    packets = [make_dummy_packet(0), make_dummy_packet(1), make_dummy_packet(2)]
+    t_start = time.monotonic()
     stats = player.play_packets(packets)
     player.stop_reader()
 
-    assert stats["sent_frames"] == 2
+    assert stats["sent_frames"] == 3
     assert stats["dropped_frames"] == 0
+    assert len(player.send_timestamps) == 3
+
+    # Verifikasi timestamp pengiriman maju secara berurutan
+    for i in range(1, len(player.send_timestamps)):
+        delta = player.send_timestamps[i] - player.send_timestamps[i - 1]
+        assert delta >= 0.0, f"Timestamp tidak monotonik: {player.send_timestamps}"
 
 
 # ------------------------------------------------------------------------------
@@ -254,6 +262,7 @@ def test_ascii_out_and_display_options(tmp_path):
 
     ascii_out_file = str(tmp_path / "stream_dump.bin")
     stdout_buf = bytearray()
+    event_disp = threading.Event()
 
     # Simulasikan handler terminal dengan ascii_out aktif dan display aktif
     f_out = open(ascii_out_file, "wb")
@@ -261,6 +270,8 @@ def test_ascii_out_and_display_options(tmp_path):
         stdout_buf.extend(data)
         f_out.write(data)
         f_out.flush()
+        if len(stdout_buf) >= 95310:
+            event_disp.set()
 
     fpga = FakeFPGA()
     transport = FakeTransport(fake_fpga=fpga)
@@ -275,10 +286,7 @@ def test_ascii_out_and_display_options(tmp_path):
 
     player.play_stream(stream_data)
 
-    for _ in range(100):
-        if len(stdout_buf) >= 95310:
-            break
-        time.sleep(0.01)
+    assert event_disp.wait(timeout=2.0), "Timeout menunggu 90 frame ASCII terbaca pada handler display"
 
     player.stop_reader()
     f_out.close()
@@ -295,12 +303,17 @@ def test_ascii_out_and_display_options(tmp_path):
     # Tes kedua: simulasi --no-display (stdout menerima 0 byte, berkas tetap terisi)
     ascii_out_file_nodisp = str(tmp_path / "stream_dump_nodisp.bin")
     stdout_buf_nodisp = bytearray()
+    event_nodisp = threading.Event()
     f_out2 = open(ascii_out_file_nodisp, "wb")
+    file_bytes_written = 0
 
     def handler_no_display(data: bytes):
-        # no_display = True -> tidak menulis ke stdout_buf
+        nonlocal file_bytes_written
         f_out2.write(data)
         f_out2.flush()
+        file_bytes_written += len(data)
+        if file_bytes_written >= 95310:
+            event_nodisp.set()
 
     fpga.reset()
     transport2 = FakeTransport(fake_fpga=fpga)
@@ -312,10 +325,7 @@ def test_ascii_out_and_display_options(tmp_path):
     )
     player2.play_stream(stream_data)
 
-    for _ in range(100):
-        if os.path.exists(ascii_out_file_nodisp) and os.path.getsize(ascii_out_file_nodisp) >= 95310:
-            break
-        time.sleep(0.01)
+    assert event_nodisp.wait(timeout=2.0), "Timeout menunggu 90 frame tertulis ke berkas nodisp"
 
     player2.stop_reader()
     f_out2.close()
@@ -378,4 +388,162 @@ def test_fake_fpga_vs_manifest():
         assert fpga.resyncs_count == exp["RESYNCS"], (
             f"[{vec_name}] RESYNCS: {fpga.resyncs_count} != {exp['RESYNCS']}"
         )
+
+
+# ------------------------------------------------------------------------------
+# Test (i): Tangkapan Galat Reader Thread (Tidak Menelan Galat)
+# ------------------------------------------------------------------------------
+def test_reader_worker_exception_handling():
+    """Memverifikasi bahwa galat pada callback on_terminal_output dicatat dan tidak menelan exception secara diam-diam."""
+    fpga = FakeFPGA()
+    transport = FakeTransport(fake_fpga=fpga)
+    clock = FakeClock()
+
+    def throwing_callback(data: bytes):
+        raise RuntimeError("Simulated terminal write fault")
+
+    player = StreamPlayer(
+        transport=transport,
+        clock=clock,
+        fps=30.0,
+        on_terminal_output=throwing_callback
+    )
+
+    packets = [make_dummy_packet(0), make_dummy_packet(1)]
+    stats = player.play_packets(packets)
+    time.sleep(0.05)
+    player.stop_reader()
+
+    assert stats["reader_errors"] >= 1, "Galat callback terminal harus dihitung"
+    assert stats["first_reader_error"] is not None
+    assert "Simulated terminal write fault" in stats["first_reader_error"]
+
+
+# ------------------------------------------------------------------------------
+# Test (j): Penolakan Nilai Negatif Ekstrem pada --av-offset-ms
+# ------------------------------------------------------------------------------
+def test_av_offset_negative_boundary_rejection():
+    """Memverifikasi bahwa nilai av_offset_ms < -(2/FPS)*1000 ms ditolak dengan ValueError."""
+    transport = FakeTransport()
+
+    # Pada 30 FPS, batas minimum adalah -2/30 * 1000 = -66.67 ms
+    # Nilai -66.0 ms harus diterima
+    player_valid = StreamPlayer(transport=transport, fps=30.0, av_offset_ms=-66.0)
+    assert player_valid.av_offset_ms == -66.0
+
+    # Nilai -67.0 ms harus ditolak dengan ValueError
+    with pytest.raises(ValueError) as excinfo:
+        StreamPlayer(transport=transport, fps=30.0, av_offset_ms=-67.0)
+
+    assert "tidak boleh lebih negatif dari batas minimum" in str(excinfo.value)
+
+
+# ------------------------------------------------------------------------------
+# Test (k): Sinkronisasi Jam Audio (AudioClock & FakeAudioDevice)
+# ------------------------------------------------------------------------------
+def test_audio_clock_synchronization():
+    """Memverifikasi AudioClock mengikuti formula: now() = frames_played / sample_rate - output_latency."""
+    audio_dev = FakeAudioDevice(sample_rate=44100, latency_sec=0.020)
+    audio_dev.start()
+    clock = AudioClock(audio_dev)
+
+    # Awal: 0 frame -> now() = max(0, 0 - 0.02) = 0.0
+    assert clock.now() == 0.0
+
+    # Majukan audio sebanyak 4410 sampel (0.100 detik):
+    # Waktu fisik = 0.100 - 0.020 = 0.080 s
+    audio_dev.advance_frames(4410)
+    assert abs(clock.now() - 0.080) < 1e-6
+
+    # Hubungkan ke StreamPlayer
+    transport = FakeTransport()
+    player = StreamPlayer(transport=transport, clock=clock, fps=30.0)
+
+    # Majukan audio saat pengiriman frame
+    original_write = transport.write
+    def write_hook(data: bytes):
+        original_write(data)
+        audio_dev.advance_frames(1470)  # ~1/30 detik per frame
+
+    transport.write = write_hook
+    packets = [make_dummy_packet(i) for i in range(3)]
+    stats = player.play_packets(packets)
+    player.stop_reader()
+
+    assert stats["sent_frames"] == 3
+    assert stats["dropped_frames"] == 0
+
+
+# ------------------------------------------------------------------------------
+# Test (l): Audio Macet / Berhenti Tidak Membuat Player Menggantung
+# ------------------------------------------------------------------------------
+def test_audio_stall_does_not_hang_player():
+    """Memverifikasi bahwa jika audio berhenti (is_active=False), sleep_until keluar segera tanpa hang."""
+    audio_dev = FakeAudioDevice(sample_rate=44100, latency_sec=0.010)
+    audio_dev.start()
+    clock = AudioClock(audio_dev)
+
+    # Hentikan audio di tengah jalan
+    audio_dev.stop()
+
+    t_start = time.monotonic()
+    # sleep_until ke target waktu masa depan (10 detik)
+    clock.sleep_until(10.0)
+    elapsed = time.monotonic() - t_start
+
+    # Harus segera keluar (< 0.1 detik) karena audio sudah tidak aktif
+    assert elapsed < 0.1, f"Player menggantung saat audio berhenti: elapsed={elapsed}s"
+
+
+# ------------------------------------------------------------------------------
+# Test (m): Jam Audio Mundur Tidak Menyebabkan Frame Dikirim Dua Kali
+# ------------------------------------------------------------------------------
+def test_audio_backwards_clock_does_not_duplicate_frames():
+    """Memverifikasi bahwa jam audio yang melompat mundur tidak menyebabkan frame dikirim ganda."""
+    audio_dev = FakeAudioDevice(sample_rate=44100, latency_sec=0.0)
+    audio_dev.start()
+    clock = AudioClock(audio_dev)
+
+    # Waktu maju ke 0.1 s
+    audio_dev.advance_frames(4410)
+    assert abs(clock.now() - 0.10) < 1e-6
+
+    # Simulasikan glitch DAC di mana frame counter melompat mundur ke 2205 (0.05 s)
+    audio_dev.set_frames_played(2205)
+
+    # AudioClock harus mempertahankan sifat monotonik
+    assert clock.now() >= 0.10, "AudioClock tidak boleh mundur"
+
+    # Jalankan StreamPlayer dengan 4 frame
+    transport = FakeTransport()
+    player = StreamPlayer(transport=transport, clock=clock, fps=30.0)
+    packets = [make_dummy_packet(i) for i in range(4)]
+    stats = player.play_packets(packets)
+    player.stop_reader()
+
+    # Jumlah frame terkirim tepat 4 (tidak ada duplikasi)
+    assert stats["sent_frames"] == 4
+    assert stats["dropped_frames"] == 0
+    assert len(player.send_timestamps) == 4
+
+
+# ------------------------------------------------------------------------------
+# Test (n): Rentang Frame (--start-frame dan --max-frames)
+# ------------------------------------------------------------------------------
+def test_stream_player_start_and_max_frames():
+    """Memverifikasi pemutaran subset frame menggunakan start_frame dan max_frames."""
+    transport = FakeTransport()
+    clock = FakeClock()
+    player = StreamPlayer(transport=transport, clock=clock, fps=30.0)
+
+    packets = [make_dummy_packet(i) for i in range(20)]
+
+    # Mainkan mulai dari frame 5 sebanyak 4 frame (frame 5, 6, 7, 8)
+    stats = player.play_packets(packets, start_frame=5, max_frames=4)
+    player.stop_reader()
+
+    assert stats["total_frames"] == 4
+    assert stats["sent_frames"] == 4
+    assert stats["dropped_frames"] == 0
+
 

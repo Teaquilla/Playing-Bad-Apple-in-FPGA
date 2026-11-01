@@ -76,7 +76,7 @@ class Transport(abc.ABC):
 
 
 class SerialTransport(Transport):
-    """Implementasi transport serial nyata menggunakan pyserial (lazy import)."""
+    """Implementasi transport serial nyata menggunakan pyserial (lazy import). [DIASUMSIKAN sampai board fisik atau loopback adapter diuji]."""
 
     def __init__(self, port: str, baudrate: int = 921600, timeout: float = 0.05):
         self.port = port
@@ -389,8 +389,18 @@ class StreamPlayer:
         self.transport = transport
         self.clock = clock if clock is not None else MonotonicClock()
         self.fps = fps
+        self.av_offset_ms = av_offset_ms
         self.av_offset_sec = av_offset_ms / 1000.0
         self.on_terminal_output = on_terminal_output
+
+        # Validasi batas negatif av_offset_ms
+        min_offset_ms = -(2.0 / self.fps) * 1000.0
+        if self.av_offset_ms < min_offset_ms:
+            raise ValueError(
+                f"--av-offset-ms ({self.av_offset_ms} ms) tidak boleh lebih negatif dari batas "
+                f"minimum {min_offset_ms:.2f} ms pada {self.fps} FPS karena akan membuat frame awal "
+                f"langsung terbuang sebagai frame telat."
+            )
 
         # State pembacaan latar belakang
         self._reader_thread: Optional[threading.Thread] = None
@@ -399,6 +409,8 @@ class StreamPlayer:
         self.dropped_frames_count: int = 0
         self.sent_frames_count: int = 0
         self.send_timestamps: List[float] = []
+        self.reader_errors_count: int = 0
+        self.first_reader_error: Optional[Exception] = None
 
     def start_reader(self) -> None:
         """Memulai thread pembacaan simultan untuk menerima keluaran ASCII dari FPGA."""
@@ -424,8 +436,10 @@ class StreamPlayer:
                 if self.on_terminal_output:
                     try:
                         self.on_terminal_output(data)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        self.reader_errors_count += 1
+                        if self.first_reader_error is None:
+                            self.first_reader_error = e
             else:
                 time.sleep(0.001)
 
@@ -438,15 +452,26 @@ class StreamPlayer:
             if self.on_terminal_output:
                 try:
                     self.on_terminal_output(data)
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.reader_errors_count += 1
+                    if self.first_reader_error is None:
+                        self.first_reader_error = e
 
-    def play_packets(self, packets: List[bytes]) -> Dict[str, Any]:
+    def play_packets(
+        self,
+        packets: List[bytes],
+        start_frame: int = 0,
+        max_frames: Optional[int] = None
+    ) -> Dict[str, Any]:
         """Mengirimkan daftar paket frame dengan penjadwalan presisi clock.
 
         Frame n dijadwalkan pada: t0 + n / FPS + av_offset_sec.
         Bila t_now > t_sched + 2 / FPS, frame terlambat lebih dari 2 frame dan dibuang (drop).
         """
+        if start_frame > 0 or max_frames is not None:
+            end_idx = None if max_frames is None else start_frame + max_frames
+            packets = packets[start_frame:end_idx]
+
         self.start_reader()
         t0 = self.clock.now()
         frame_interval = 1.0 / self.fps
@@ -480,12 +505,19 @@ class StreamPlayer:
             "sent_frames": self.sent_frames_count,
             "dropped_frames": self.dropped_frames_count,
             "received_bytes": self.received_bytes_count,
+            "reader_errors": self.reader_errors_count,
+            "first_reader_error": repr(self.first_reader_error) if self.first_reader_error else None,
         }
 
-    def play_stream(self, stream_bytes: bytes) -> Dict[str, Any]:
+    def play_stream(
+        self,
+        stream_bytes: bytes,
+        start_frame: int = 0,
+        max_frames: Optional[int] = None
+    ) -> Dict[str, Any]:
         """Mengurai aliran byte stream dan memutarnya."""
         packets = split_stream_into_packets(stream_bytes)
-        return self.play_packets(packets)
+        return self.play_packets(packets, start_frame=start_frame, max_frames=max_frames)
 
 
 # ==============================================================================
@@ -521,13 +553,31 @@ def main() -> None:
         "--av-offset-ms",
         type=float,
         default=0.0,
-        help="Offset audio/video dalam milidetik: nilai positif berarti video dikirim lebih lambat dari jam acuan (default: 0 ms [DIASUMSIKAN]).",
+        help="Offset audio/video dalam milidetik (positif = video lebih lambat dari jam acuan). Nilai tidak boleh lebih negatif dari -(2/FPS)*1000 ms (default: 0 ms [DIASUMSIKAN]).",
     )
     parser.add_argument(
-        "--no-audio",
+        "--audio",
+        type=str,
+        default=None,
+        help="Jalur berkas audio WAV untuk sinkronisasi pemutaran audio PC opsi A1 (default: None, menggunakan MonotonicClock).",
+    )
+    parser.add_argument(
+        "--fake-fpga",
         action="store_true",
-        default=True,
-        help="Gunakan jam MonotonicClock tanpa sinkronisasi audio (default: True).",
+        default=False,
+        help="Jalankan simulasi seluruh pipeline terhadap model FakeFPGA tanpa board hardware fisik.",
+    )
+    parser.add_argument(
+        "--start-frame",
+        type=int,
+        default=0,
+        help="Indeks frame awal pemutaran (default: 0).",
+    )
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=None,
+        help="Jumlah maksimum frame yang akan dimainkan (default: seluruh frame).",
     )
     parser.add_argument(
         "--ascii-out",
@@ -562,18 +612,39 @@ def main() -> None:
     print("=" * 60)
     print("      BAD APPLE!! UART STREAM PLAYER (DIGILENT BASYS 3)     ")
     print("=" * 60)
-    print(f"Port Serial   : {args.port} @ {args.baud} baud (8N1)")
+    if args.fake_fpga:
+        print("Target Device : Model Perilaku FakeFPGA (Simulasi Boardless)")
+    else:
+        print(f"Port Serial   : {args.port} @ {args.baud} baud (8N1)")
     print(f"Laju Frame    : {args.fps} FPS")
     print(f"A/V Offset    : {args.av_offset_ms} ms [DIASUMSIKAN]")
-    print(f"Mode Jam      : MonotonicClock (--no-audio)")
+    if args.audio:
+        print(f"Mode Jam      : AudioClock ({args.audio})")
+    else:
+        print("Mode Jam      : MonotonicClock (Tanpa Audio)")
     print(f"Tampilan      : {'NONAKTIF (--no-display)' if args.no_display else 'AKTIF (sys.stdout.buffer)'}")
     if args.ascii_out:
         print(f"Simpan ASCII  : {args.ascii_out}")
+    if args.start_frame > 0 or args.max_frames is not None:
+        print(f"Rentang Frame : Start={args.start_frame}, Max={args.max_frames}")
     print(f"Berkas Stream : {args.file} ({len(stream_data)} bytes)")
     print("=" * 60)
 
-    transport = SerialTransport(port=args.port, baudrate=args.baud)
-    clock = MonotonicClock()
+    # Inisialisasi Transport
+    if args.fake_fpga:
+        fpga_sim = FakeFPGA()
+        transport = FakeTransport(fake_fpga=fpga_sim)
+    else:
+        transport = SerialTransport(port=args.port, baudrate=args.baud)
+
+    # Inisialisasi Jam (Clock) & Audio
+    audio_dev = None
+    if args.audio:
+        from python.audio_player import SoundDeviceAudio, AudioClock
+        audio_dev = SoundDeviceAudio(args.audio)
+        clock = AudioClock(audio_dev)
+    else:
+        clock = MonotonicClock()
 
     ascii_file = open(args.ascii_out, "wb") if args.ascii_out else None
 
@@ -594,24 +665,42 @@ def main() -> None:
     )
 
     try:
-        stats = player.play_stream(stream_data)
+        if audio_dev is not None:
+            audio_dev.start()
+
+        stats = player.play_stream(
+            stream_data,
+            start_frame=args.start_frame,
+            max_frames=args.max_frames
+        )
         # Berikan waktu sejenak untuk mengosongkan keluaran terakhir
         time.sleep(0.1)
         player.stop_reader()
         transport.close()
+        if audio_dev is not None:
+            audio_dev.stop()
+            audio_dev.close()
         if ascii_file is not None:
             ascii_file.close()
+
         print("\n" + "=" * 60)
         print("RINGKASAN STREAMING:")
         print(f"Total Frame   : {stats['total_frames']}")
         print(f"Frame Terkirim: {stats['sent_frames']}")
         print(f"Frame Dibuang : {stats['dropped_frames']}")
         print(f"Byte Diterima : {stats['received_bytes']}")
+        if stats.get("reader_errors", 0) > 0:
+            print(f"Galat Pembaca : {stats['reader_errors']} (Pertama: {stats['first_reader_error']})")
         print("=" * 60)
     except KeyboardInterrupt:
         print("\nStreaming dihentikan oleh pengguna.")
         player.stop_reader()
         transport.close()
+        if audio_dev is not None:
+            audio_dev.stop()
+            audio_dev.close()
+        if ascii_file is not None:
+            ascii_file.close()
 
 
 if __name__ == "__main__":

@@ -193,7 +193,13 @@ Anggaran satu frame pada 30 fps adalah 33,3 ms. 115200 baud tidak cukup. 921600 
 ### 4.7 `audio_out` (M3, kerangka)
 Sesuai keputusan tim D-5 (2026-10-31), parameter audio hardware ditetapkan pada **PCM 8-bit 8 kHz mono unsigned** (titik tengah 128, ukuran total 217,84 s $\times$ 8.000 B = 1.742.720 Byte / 13,94 Mbit).
 - **Konsekuensi Jalur Output A2 (Audio dari FPGA):** Masuk: aliran sampel PCM 8-bit 8 kHz pada laju `sample_tick`. Keluar: 1 pin PMOD (PWM atau sigma-delta) + filter rekonstruksi RC di luar FPGA + earphone [DIASUMSIKAN sampai ada rangkaian fisik dan batas arus pin diverifikasi dari datasheet]. Logika dekoder ADPCM di hardware dieliminasi penuh sehingga hemat logika.
-- **Konsekuensi Jalur Output A1 (Audio dari PC Host):** Pemutaran audio di PC menggunakan berkas audio asli (44,1 kHz stereo/mono) dan **TIDAK terpengaruh oleh D-5**. Jalur A1 tidak memerlukan modul hardware FPGA ini.
+- **Konsekuensi Jalur Output A1 (Audio dari PC Host):**
+  - Pemutaran audio di PC menggunakan berkas audio asli PCM 16-bit 44,1 kHz stereo (`data/audio/bad_apple.wav`) dan **TIDAK terpengaruh oleh D-5**.
+  - Jalur A1 tidak memerlukan modul hardware FPGA ini.
+  - Implementasi host PC (`python/audio_player.py`): Menggunakan `sounddevice.RawOutputStream` dengan buffer callback Python (tanpa dependensi numpy pada callback) untuk latency rendah.
+  - Sinkronisasi Jam (`AudioClock`): Waktu acuan streaming dihitung dari sampel fisik yang telah keluar dari DAC:
+    $$\text{now}() = \frac{\text{frames\_played}}{\text{sample\_rate}} - \text{output\_latency}$$
+  - Bila opsi `--audio` tidak disertakan pada `stream_player.py`, sistem beralih otomatis ke jam lokal `MonotonicClock` bawaan OS.
 
 ### 4.8 `oled_sink` (M4, kerangka)
 Membaca `frame_buffer`, mengonversi ke page-addressing SSD1306, dan mengirim lewat master SPI atau I2C (D-7). Dikembangkan terlebih dulu di simulasi memakai model perilaku layar.

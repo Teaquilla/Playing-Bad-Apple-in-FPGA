@@ -111,23 +111,42 @@ Untuk memvalidasi pemutaran video streaming dari PC ke FPGA Basys 3:
    - **Stop Bits:** `1`
    - **Flow Control:** `None`
    - Pastikan **Latency Timer** driver FTDI pada Windows sudah diubah dari default 16 ms menjadi **`1 ms`** (atau `2 ms`) di Device Manager [DIASUMSIKAN].
+   - *Catatan Port Tunggal:* Board Basys 3 hanya memiliki satu port serial FTDI terintegrasi. Terminal eksternal tidak dapat membuka port COM secara bersamaan dengan `stream_player.py` karena batas eksklusif handle serial OS Windows [DIASUMSIKAN]. Oleh karena itu, pembacaan byte ASCII dari pin RsTx (~31,8 KB/s) ditangani langsung oleh background thread `stream_player.py`. Operasi baca dan tulis simultan pada `SerialTransport` berstatus **[DIASUMSIKAN]** sampai diverifikasi pada board fisik atau loopback adapter.
 3. **Eksekusi Host Streamer:**
    Jalankan pemutar streaming dari lingkungan `.venv`:
    ```powershell
-   .\.venv\Scripts\python.exe python/stream_player.py --port COM3 --baud 921600 --clip data/golden/stream_clip.bin --fps 30 --av-offset-ms 0 --no-audio
+   .\.venv\Scripts\python.exe python/stream_player.py --port COM3 --baud 921600 --clip data/golden/stream_clip.bin --fps 30 --av-offset-ms 0
    ```
    *(Ganti `COM3` dengan nomor port COM fisik yang terdeteksi)*.
+
+   - **Parameter Jam & Audio (`--audio`):**
+     - Tanpa `--audio`: Streamer menggunakan jam monotonik sistem (`MonotonicClock`).
+     - Dengan `--audio PATH`: Memutar audio WAV PC (A1) menggunakan backend `sounddevice.RawOutputStream` dan menyinkronkan video terhadap `AudioClock`.
+       Contoh: `--audio data/audio/bad_apple.wav`.
    - **Parameter `--av-offset-ms`:** Nilai offset audio/video dalam milidetik. Nilai positif berarti video dikirim lebih lambat dari jam acuan (default: `0` ms `[DIASUMSIKAN]`).
+     > [!WARNING]
+     > Nilai `--av-offset-ms` tidak boleh lebih negatif dari $-(2/\text{FPS}) \times 1000\text{ ms}$ (pada 30 FPS batasnya adalah $-66,67\text{ ms}$). Jika lebih negatif, konstruktor `StreamPlayer` menolak dengan `ValueError` karena frame awal akan langsung dibuang sebagai frame terlambat.
+   - **Opsi Rentang Frame:**
+     - `--start-frame N`: Indeks frame awal (default: 0).
+     - `--max-frames M`: Batas jumlah frame yang diputar (default: semua frame).
    - **Opsi Penyimpanan & Tampilan:**
      - Simpan rekaman mentah ASCII ke file: tambahkan `--ascii-out stream_run.bin`.
      - Matikan tampilan animasi di terminal: tambahkan `--no-display`.
 
+4. **Mode Simulasi Boardless Mandiri (`--fake-fpga`):**
+   Untuk menguji seluruh pipeline perangkat lunak host (video RLE + audio PC + render ASCII) secara mandiri di PC tanpa perangkat keras FPGA:
+   ```powershell
+   .\.venv\Scripts\python.exe python/stream_player.py --fake-fpga --clip data/golden/stream_clip.bin --audio data/audio/bad_apple.wav --start-frame 0 --max-frames 90
+   ```
+   *Catatan:* Evaluasi keselarasan sinkronisasi audio-video merupakan evaluasi subjektif pengguna.
+
 ### Hasil yang Diharapkan [DIASUMSIKAN]:
-- Skrip mengirimkan seluruh 90 frame klip paket RLE pada laju 30 FPS.
+- Skrip mengirimkan seluruh frame paket RLE pada laju 30 FPS.
 - Thread pembaca simultan menangkap aliran byte ASCII dari pin RsTx (~31,8 KB/s) tanpa lagging atau deadlock.
 - Terminal menampilkan animasi ASCII 128×64 tanpa tearing (buffer swap tertunda hanya terjadi saat frame baru valid).
   > [!NOTE]
-  > Dukungan dan kelancaran rendering escape sequence ANSI (`\x1b[H` / `ESC [ H`) di Windows Terminal atau terminal emulator lainnya berstatus **`[DIASUMSIKAN]`** sampai diverifikasi langsung pada hardware dan terminal riil.
+  > - Dukungan dan kelancaran rendering escape sequence ANSI (`\x1b[H` / `ESC [ H`) di Windows Terminal atau terminal emulator lainnya berstatus **`[DIASUMSIKAN]`** sampai diverifikasi langsung pada hardware dan terminal riil.
+  > - Karakteristik jitter penjadwalan frame (< 2 ms) hanya diukur pada mesin pengujian spesifik ini tanpa perangkat serial fisik riil, dan tidak menjamin angka yang sama pada sistem lain atau dengan beban I/O serial riil.
 - Pada ringkasan akhir: `Total Frame: 90`, `Frame Terkirim: 90`, `Frame Dibuang: 0`, `Byte Diterima: 95310`.
 
 ---
