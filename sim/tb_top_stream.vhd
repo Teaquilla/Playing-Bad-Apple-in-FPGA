@@ -384,6 +384,13 @@ begin
             report "ascii_sink mentransmisikan data saat paket korup (frame_buffer swap ilegal)!" severity failure;
         report "Uji 2 Sukses: Paket checksum korup ditolak, err_chk_cnt bertambah 1, frame_buffer tidak swap, LED5 aktif.";
 
+        -- Reset penghitung sebelum Uji 3 untuk verifikasi metrik mutlak manifes (stream_expected.txt)
+        btnC <= '1';
+        wait for 100 ns;
+        wait until rising_edge(clk);
+        btnC <= '0';
+        wait for 200 ns;
+
         -- 3. Uji Vektor False SOF: stream_false_sof.hex (fake SOF + Frame 0 = 372 byte)
         report "=== [TB_TOP_STREAM] Uji 3: Umpankan stream_false_sof.hex ===";
         uji3_start <= true;
@@ -413,17 +420,24 @@ begin
         -- Verifikasi metrik stream_expected.txt untuk stream_false_sof:
         -- VALID_FRAMES bertambah 1 (Frame 0), LENGTH_ERRORS bertambah 1 (false SOF terdeteksi via length/timeout err),
         -- CHECKSUM_ERRORS tetap 1, RUN_ERRORS tetap 0, RESYNCS bertambah (resync SOF asli).
-        assert to_integer(val_cnt_fast) = 91
-            report "Uji 3: valid_frames bukan 91 (terbaca: " & integer'image(to_integer(val_cnt_fast)) & ")!" severity failure;
-        assert to_integer(err_chk_cnt_fast) = 1
-            report "Uji 3: chk_errors bukan 1 (terbaca: " & integer'image(to_integer(err_chk_cnt_fast)) & ")!" severity failure;
+        assert to_integer(val_cnt_fast) = 1
+            report "Uji 3: valid_frames bukan 1 (terbaca: " & integer'image(to_integer(val_cnt_fast)) & ")!" severity failure;
+        assert to_integer(err_chk_cnt_fast) = 0
+            report "Uji 3: chk_errors bukan 0 (terbaca: " & integer'image(to_integer(err_chk_cnt_fast)) & ")!" severity failure;
         assert to_integer(err_len_cnt_fast) = 1
             report "Uji 3: len_errors bukan 1 (terbaca: " & integer'image(to_integer(err_len_cnt_fast)) & ")!" severity failure;
         assert rle_err_run_cnt = 0
             report "Uji 3: run_errors bukan 0!" severity failure;
-        assert to_integer(err_res_cnt_fast) = 3
-            report "Uji 3: resyncs bukan 3 (terbaca: " & integer'image(to_integer(err_res_cnt_fast)) & ")!" severity failure;
-        report "Uji 3 Sukses: Paket false SOF berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B, val=91, chk=1, len=1, run=0, res=3)!";
+        assert to_integer(err_res_cnt_fast) = 2
+            report "Uji 3: resyncs bukan 2 (terbaca: " & integer'image(to_integer(err_res_cnt_fast)) & ")!" severity failure;
+        report "Uji 3 Sukses: Paket false SOF berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B, val=1, chk=0, len=1, run=0, res=2 mutlak manifes)!";
+
+        -- Reset penghitung sebelum Uji 4 untuk verifikasi metrik mutlak manifes (stream_expected.txt)
+        btnC <= '1';
+        wait for 100 ns;
+        wait until rising_edge(clk);
+        btnC <= '0';
+        wait for 200 ns;
 
         -- 4. Uji Vektor Byte Insertion: stream_byte_insertion.hex (garbage 6B + Frame 0 347B = 353 byte)
         report "=== [TB_TOP_STREAM] Uji 4: Umpankan stream_byte_insertion.hex ===";
@@ -454,17 +468,17 @@ begin
         -- Verifikasi metrik stream_expected.txt untuk stream_byte_insertion:
         -- VALID_FRAMES bertambah 1 (Frame 0), RESYNCS bertambah 1 (sampah 6B sebelum SOF),
         -- CHECKSUM_ERRORS tetap 1, LENGTH_ERRORS tetap 1, RUN_ERRORS tetap 0.
-        assert to_integer(val_cnt_fast) = 92
-            report "Uji 4: valid_frames bukan 92 (terbaca: " & integer'image(to_integer(val_cnt_fast)) & ")!" severity failure;
-        assert to_integer(err_chk_cnt_fast) = 1
-            report "Uji 4: chk_errors bukan 1!" severity failure;
-        assert to_integer(err_len_cnt_fast) = 1
-            report "Uji 4: len_errors bukan 1!" severity failure;
+        assert to_integer(val_cnt_fast) = 1
+            report "Uji 4: valid_frames bukan 1 (terbaca: " & integer'image(to_integer(val_cnt_fast)) & ")!" severity failure;
+        assert to_integer(err_chk_cnt_fast) = 0
+            report "Uji 4: chk_errors bukan 0!" severity failure;
+        assert to_integer(err_len_cnt_fast) = 0
+            report "Uji 4: len_errors bukan 0!" severity failure;
         assert rle_err_run_cnt = 0
             report "Uji 4: run_errors bukan 0!" severity failure;
-        assert to_integer(err_res_cnt_fast) = 4
-            report "Uji 4: resyncs bukan 4 (terbaca: " & integer'image(to_integer(err_res_cnt_fast)) & ")!" severity failure;
-        report "Uji 4 Sukses: Paket disisipi byte sampah berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B, val=92, chk=1, len=1, run=0, res=4)!";
+        assert to_integer(err_res_cnt_fast) = 1
+            report "Uji 4: resyncs bukan 1 (terbaca: " & integer'image(to_integer(err_res_cnt_fast)) & ")!" severity failure;
+        report "Uji 4 Sukses: Paket disisipi byte sampah berhasil diresinkronisasi dan Frame 0 byte-exact (1.059 B, val=1, chk=0, len=0, run=0, res=1 mutlak manifes)!";
 
         -- Tunggu penyelesaian uji real-time pendek (921.600 baud)
         if not real_test_done then

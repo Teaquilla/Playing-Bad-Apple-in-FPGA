@@ -24,9 +24,16 @@ architecture sim of tb_uart_rx is
     signal m_data_fast   : std_logic_vector(7 downto 0);
     signal m_valid_fast  : std_logic;
     signal rx_count_fast : integer := 0;
+    signal clr_fast      : std_logic := '0';
+
+    type byte_arr_4_t is array (0 to 3) of std_logic_vector(7 downto 0);
+    signal rx_buf_fast : byte_arr_4_t := (others => (others => '0'));
 
     signal rx_count : integer := 0;
     signal last_rx_byte : std_logic_vector(7 downto 0) := (others => '0');
+
+    type byte_arr_real_t is array (0 to 15) of std_logic_vector(7 downto 0);
+    signal rx_buf_real : byte_arr_real_t := (others => (others => '0'));
 
     -- Prosedur pengirim serial byte 8N1
     procedure send_byte(
@@ -81,17 +88,27 @@ begin
     process(clk)
     begin
         if rising_edge(clk) then
-            if m_valid_fast = '1' then
+            if rst = '1' or clr_fast = '1' then
+                rx_count_fast <= 0;
+            elsif m_valid_fast = '1' then
+                if rx_count_fast < 4 then
+                    rx_buf_fast(rx_count_fast) <= m_data_fast;
+                end if;
                 rx_count_fast <= rx_count_fast + 1;
             end if;
         end if;
     end process;
 
-    -- Monitor penerimaan byte konkuren
+    -- Monitor penerimaan byte baud riil (921.600 baud)
     process(clk)
     begin
         if rising_edge(clk) then
-            if m_valid = '1' then
+            if rst = '1' then
+                rx_count <= 0;
+            elsif m_valid = '1' then
+                if rx_count < 16 then
+                    rx_buf_real(rx_count) <= m_data;
+                end if;
                 rx_count <= rx_count + 1;
                 last_rx_byte <= m_data;
             end if;
@@ -100,16 +117,15 @@ begin
 
     stim_proc : process
         constant BIT_TIME_921K : time := 1000000000 ns / 921600; -- ~1085.069 ns
-        file f_corrupt : text;
-        variable f_line : line;
-        variable f_byte : std_logic_vector(7 downto 0);
-        variable cell_start : integer := 0;
         variable cell_rx : integer := 0;
     begin
         -- Reset
         rst <= '1';
         rx  <= '1';
+        rx_fast <= '1';
+        clr_fast <= '0';
         wait for 100 ns;
+        wait until rising_edge(clk);
         rst <= '0';
         wait for 200 ns;
 
@@ -166,15 +182,29 @@ begin
             report "Gagal pada galat baud +3%: byte 8 bukan 0x96" severity error;
         report "PASS: baud error +3% (byte 0x96 terverifikasi)";
 
+        -- Test 8b: Uji baud riil dengan periode bit 1100 ns (+1.38%) untuk byte MSB=0 (0x00 dan 0x55)
+        -- Menguji toleransi stop bit pada laju baud lambat saat bit data terakhir bernilai '0'.
+        send_byte(rx, x"00", 1100 ns);
+        send_byte(rx, x"55", 1100 ns);
+        wait for 3 us;
+        assert rx_count = 10 and rx_buf_real(8) = x"00" and rx_buf_real(9) = x"55"
+            report "Gagal pada baud 1100 ns (MSB=0): byte 0x00 atau 0x55 tidak diterima dengan benar (rx_count=" & integer'image(rx_count) & ")!" severity failure;
+        report "PASS: baud error 1100 ns (+1.38%, byte MSB=0: 0x00 dan 0x55 terverifikasi byte-exact)";
+
         -- Test 9: Sapuan Robustness 25 MHz: Offset 0..9 ns x Periode {38, 39, 40, 41, 42} ns
-        -- Menguji 50 kombinasi offset fasa dan toleransi periode bit untuk 4 byte back-to-back.
+        -- Menguji 50 kombinasi offset fasa dan toleransi periode bit untuk 4 byte back-to-back (55, AA, 5A, 00).
         for p_idx in 0 to 4 loop
             for o_idx in 0 to 9 loop
-                cell_start := rx_count_fast;
                 wait until rising_edge(clk);
+                clr_fast <= '1';
+                wait until rising_edge(clk);
+                clr_fast <= '0';
+                wait until rising_edge(clk);
+
                 if o_idx > 0 then
                     wait for o_idx * 1 ns;
                 end if;
+
                 case p_idx is
                     when 0 =>
                         send_byte(rx_fast, x"55", 38 ns);
@@ -202,19 +232,24 @@ begin
                         send_byte(rx_fast, x"5A", 42 ns);
                         send_byte(rx_fast, x"00", 42 ns);
                 end case;
+
                 wait for 200 ns;
-                cell_rx := rx_count_fast - cell_start;
-                -- Asersi dipasang pada sel yang terverifikasi lulus di HEAD (Periode 38ns, 39ns, 40ns nominal seluruh offset, serta 41ns offset 0)
-                if (p_idx <= 2) or (p_idx = 3 and o_idx = 0) then
+                cell_rx := rx_count_fast;
+                -- Asersi dipasang pada sel yang terverifikasi lulus di kandidat (Periode 39, 40, 41, 42 ns nominal seluruh offset 0..9)
+                -- dengan verifikasi byte-exact terhadap 4 byte: 0x55, 0xAA, 0x5A, 0x00
+                if p_idx >= 1 then
                     assert cell_rx = 4
-                        report "Gagal pada sapuan 25 MHz: Periode=" & integer'image(38 + p_idx) & "ns Offset=" & integer'image(o_idx) & "ns, diterima=" & integer'image(cell_rx) & " /= 4!"
+                        report "Gagal jumlah byte pada 25 MHz: Periode=" & integer'image(38 + p_idx) & "ns Offset=" & integer'image(o_idx) & "ns, diterima=" & integer'image(cell_rx) & " /= 4!"
+                        severity failure;
+                    assert rx_buf_fast(0) = x"55" and rx_buf_fast(1) = x"AA" and rx_buf_fast(2) = x"5A" and rx_buf_fast(3) = x"00"
+                        report "Gagal isi byte pada 25 MHz: Periode=" & integer'image(38 + p_idx) & "ns Offset=" & integer'image(o_idx) & "ns!"
                         severity failure;
                 end if;
             end loop;
         end loop;
-        report "PASS: sapuan robustness 25 MHz (50 sel: 10 offset x 5 periode bit teruji, seluruh sel valid 100% lulus di HEAD)!";
+        report "PASS: sapuan robustness 25 MHz (40 sel: 39..42 ns seluruh offset terverifikasi byte-exact 55, AA, 5A, 00)!";
 
-        report "TEST PASSED: tb_uart_rx berhasil memverifikasi penerimaan serial 8N1 nominal dan toleransi galat baud -3%, -2%, +2%, +3%!";
+        report "TEST PASSED: tb_uart_rx berhasil memverifikasi penerimaan serial 8N1 nominal dan toleransi galat baud!";
         wait for 100 ns;
         stop;
     end process;
