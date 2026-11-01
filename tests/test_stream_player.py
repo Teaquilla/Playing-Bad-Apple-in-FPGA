@@ -398,8 +398,10 @@ def test_reader_worker_exception_handling():
     fpga = FakeFPGA()
     transport = FakeTransport(fake_fpga=fpga)
     clock = FakeClock()
+    error_event = threading.Event()
 
     def throwing_callback(data: bytes):
+        error_event.set()
         raise RuntimeError("Simulated terminal write fault")
 
     player = StreamPlayer(
@@ -410,9 +412,10 @@ def test_reader_worker_exception_handling():
     )
 
     packets = [make_dummy_packet(0), make_dummy_packet(1)]
-    stats = player.play_packets(packets)
-    time.sleep(0.05)
+    player.play_packets(packets)
+    assert error_event.wait(timeout=1.5), "Callback galat tidak dipanggil"
     player.stop_reader()
+    stats = player.get_stats()
 
     assert stats["reader_errors"] >= 1, "Galat callback terminal harus dihitung"
     assert stats["first_reader_error"] is not None

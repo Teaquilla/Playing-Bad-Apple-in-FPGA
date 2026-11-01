@@ -406,6 +406,7 @@ class StreamPlayer:
         self._reader_thread: Optional[threading.Thread] = None
         self._stop_reader = threading.Event()
         self.received_bytes_count: int = 0
+        self.total_frames_count: int = 0
         self.dropped_frames_count: int = 0
         self.sent_frames_count: int = 0
         self.send_timestamps: List[float] = []
@@ -457,6 +458,17 @@ class StreamPlayer:
                     if self.first_reader_error is None:
                         self.first_reader_error = e
 
+    def get_stats(self) -> Dict[str, Any]:
+        """Mengembalikan statistik terkini pemutaran dan pembacaan stream."""
+        return {
+            "total_frames": self.total_frames_count,
+            "sent_frames": self.sent_frames_count,
+            "dropped_frames": self.dropped_frames_count,
+            "received_bytes": self.received_bytes_count,
+            "reader_errors": self.reader_errors_count,
+            "first_reader_error": repr(self.first_reader_error) if self.first_reader_error else None,
+        }
+
     def play_packets(
         self,
         packets: List[bytes],
@@ -472,6 +484,7 @@ class StreamPlayer:
             end_idx = None if max_frames is None else start_frame + max_frames
             packets = packets[start_frame:end_idx]
 
+        self.total_frames_count = len(packets)
         self.start_reader()
         t0 = self.clock.now()
         frame_interval = 1.0 / self.fps
@@ -500,14 +513,7 @@ class StreamPlayer:
             self.sent_frames_count += 1
             self.send_timestamps.append(self.clock.now())
 
-        return {
-            "total_frames": len(packets),
-            "sent_frames": self.sent_frames_count,
-            "dropped_frames": self.dropped_frames_count,
-            "received_bytes": self.received_bytes_count,
-            "reader_errors": self.reader_errors_count,
-            "first_reader_error": repr(self.first_reader_error) if self.first_reader_error else None,
-        }
+        return self.get_stats()
 
     def play_stream(
         self,
@@ -668,7 +674,7 @@ def main() -> None:
         if audio_dev is not None:
             audio_dev.start()
 
-        stats = player.play_stream(
+        player.play_stream(
             stream_data,
             start_frame=args.start_frame,
             max_frames=args.max_frames
@@ -683,6 +689,7 @@ def main() -> None:
         if ascii_file is not None:
             ascii_file.close()
 
+        stats = player.get_stats()
         print("\n" + "=" * 60)
         print("RINGKASAN STREAMING:")
         print(f"Total Frame   : {stats['total_frames']}")
