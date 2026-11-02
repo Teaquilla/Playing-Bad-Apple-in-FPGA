@@ -49,24 +49,41 @@ Dokumen ini merupakan proposal desain arsitektur untuk **Milestone 4 (M4)**, men
 
 ### 1.4 Urutan Inisialisasi Register SSD1306 (FSM Init)
 Modul hardware `oled_controller.vhd` akan mengimplementasikan State Machine (FSM) inisialisasi deterministik [DIASUMSIKAN]:
-1. **Hardware Reset Pulse (`RES`):** Ditarik LOW selama minimal $10\ \mu\text{s}$ (1.000 siklus 100 MHz), lalu dikembalikan HIGH. Menunggu $10\ \mu\text{s}$ sebelum perintah SPI pertama dikirim.
-2. **Urutan Perintah Konfigurasi (DC = 0, CS = 0):**
-   - `0xAE` : Display OFF (Sleep mode).
-   - `0xD5`, `0x80` : Set Display Clock Divide Ratio / Oscillator Frequency ke nilai tengah nominal.
-   - `0xA8`, `0x3F` : Set Multiplex Ratio ke 64MUX (tinggi 64 piksel).
-   - `0xD3`, `0x00` : Set Display Offset ke 0 (tanpa pergeseran vertikal).
-   - `0x40` : Set Display Start Line ke baris 0.
-   - `0x8D`, `0x14` : Aktifkan Internal Charge Pump (regulator tegangan internal 7,5V untuk panel OLED).
-   - `0x20`, `0x00` : Set Memory Addressing Mode ke Horizontal Addressing Mode (pointer kolom bertambah otomatis $0..127$, lalu berganti page $0..7$).
-   - `0xA1` : Set Segment Re-map (kolom 127 dipetakan ke SEG0 untuk orientasi normal).
-   - `0xC8` : Set COM Output Scan Direction (remap mode COM[N-1] ke COM0).
-   - `0xDA`, `0x12` : Set COM Pins Hardware Configuration (konfigurasi pin alternatif 128×64).
-   - `0x81`, `0xCF` : Set Contrast Control ke tingkat kontras tinggi (0xCF).
-   - `0xD9`, `0xF1` : Set Pre-charge Period (Phase 1 = 1 DCLK, Phase 2 = 15 DCLK).
-   - `0xDB`, `0x40` : Set VCOMH Deselect Level (~0,77 × VCC).
-   - `0xA4` : Entire Display ON resume to GDRAM.
-   - `0xA6` : Set Normal Display (`1` = piksel menyala/putih, `0` = piksel padam/hitam).
-   - `0xAF` : Display ON (menghidupkan panel).
+
+#### A. Urutan Daya & Sinyal Reset Hardware (Power-On Sequence) [DIASUMSIKAN]
+1. **Pemberian Daya (VCC 3,3V):** Tegangan 3,3V dari pin PMOD Basys 3 dialirkan ke pin VCC modul OLED dan dibiarkan stabil ($> 10\text{ ms}$).
+2. **Hardware Reset Pulse (`RES`):** Pin `RES` ditarik LOW selama minimal $10\ \mu\text{s}$ (1.000 siklus 100 MHz), lalu ditarik kembali ke HIGH [DIASUMSIKAN]. Modul menunggu jeda de-asersi minimal $10\ \mu\text{s}$ sebelum transaksi SPI pertama dikirim.
+3. **Pengiriman Urutan Perintah Konfigurasi:** Dikirim secara serial dengan sinyal `DC = 0` dan `CS = 0`.
+4. **Display ON:** Perintah `0xAF` dikirim di akhir urutan konfigurasi untuk menghidupkan panel layar.
+
+#### B. Tabel Perintah Inisialisasi [DIASUMSIKAN]
+> [!NOTE]
+> Seluruh byte perintah dan urutan berikut didasarkan pada konvensi pustaka pengendali SSD1306 open-source komunitas (seperti Adafruit SSD1306 / U8g2) dan berstatus **[DIASUMSIKAN]** karena berkas datasheet resmi Solomon Systech SSD1306 tidak disimpan di dalam repositori proyek ini. Pengguna wajib memverifikasi item-item pada daftar periksa di bawah terhadap datasheet modul fisik yang dimiliki.
+
+| Byte Perintah (Hex) | Nama Fungsi / Register | Makna & Pengaturan Teknis | Sumber Acuan |
+|---|---|---|---|
+| `0xAE` | Display OFF | Mematikan panel layar OLED (Sleep mode) sebelum konfigurasi. | Konvensi umum init SSD1306 [DIASUMSIKAN] |
+| `0xD5`, `0x80` | Set Display Clock Divide Ratio | Menyetel rasio pembagi clock tampilan dan frekuensi osilator internal ke nilai nominal (0x80 = divide 1, osc mid). | Konvensi umum init SSD1306 [DIASUMSIKAN] |
+| `0xA8`, `0x3F` | Set Multiplex Ratio | Menyetel rasio multiplexing ke 64MUX (tinggi panel 64 baris piksel). | Konvensi umum init SSD1306 [DIASUMSIKAN] |
+| `0xD3`, `0x00` | Set Display Offset | Menyetel offset vertikal ke baris 0 (tanpa pergeseran COM). | Konvensi umum init SSD1306 [DIASUMSIKAN] |
+| `0x40` | Set Display Start Line | Menentukan baris awal RAM pada baris 0. | Konvensi umum init SSD1306 [DIASUMSIKAN] |
+| `0x8D`, `0x14` | Charge Pump Setting | Mengaktifkan pompa muatan internal 7,5V (`0x14` = Enable). **Wajib diaktifkan** untuk modul 7-pin tanpa catu daya eksternal 7-15V [DIASUMSIKAN]. | Konvensi modul OLED 3,3V SPI [DIASUMSIKAN] |
+| `0x20`, `0x00` | Set Memory Addressing Mode | Menyetel mode pengalamatan horizontal (`0x00` = Horizontal Mode: kolom $0..127$, otomatis ganti page $0..7$). | Konvensi umum init SSD1306 [DIASUMSIKAN] |
+| `0xA1` | Set Segment Re-map | Memetakan alamat kolom 127 ke SEG0 (orientasi kolom normal/terbalik). | Konvensi modul OLED 3,3V SPI [DIASUMSIKAN] |
+| `0xC8` | Set COM Output Scan Direction | Memindai COM dari baris COM[N-1] ke COM0 (orientasi pemindaian normal). | Konvensi modul OLED 3,3V SPI [DIASUMSIKAN] |
+| `0xDA`, `0x12` | Set COM Pins Hardware Config | Menyetel konfigurasi pin COM alternatif untuk resolusi 128×64 (`0x12`). | Konvensi modul 128×64 [DIASUMSIKAN] |
+| `0x81`, `0xCF` | Set Contrast Control | Menyetel register kontras ke tingkat tinggi (`0xCF` dari rentang `0x00..0xFF`). | Konvensi umum init SSD1306 [DIASUMSIKAN] |
+| `0xD9`, `0xF1` | Set Pre-charge Period | Fase 1 = 1 DCLK, Fase 2 = 15 DCLK untuk stabilitas penyalaan piksel. | Konvensi modul OLED 3,3V SPI [DIASUMSIKAN] |
+| `0xDB`, `0x40` | Set VCOMH Deselect Level | Menyetel level ambang VCOMH ke ~0,77 × VCC (`0x40`). | Konvensi modul OLED 3,3V SPI [DIASUMSIKAN] |
+| `0xA4` | Entire Display ON Resume | Mengarahkan output tampilan mengikuti isi GDRAM internal (bukan memaksa seluruh piksel ON). | Konvensi umum init SSD1306 [DIASUMSIKAN] |
+| `0xA6` | Set Normal / Inverse Display | Menyetel mode normal (`0xA6`: bit 1 = menyala, bit 0 = padam; bukan inverse `0xA7`). | Konvensi umum init SSD1306 [DIASUMSIKAN] |
+| `0xAF` | Display ON | Menghidupkan panel OLED setelah konfigurasi selesai. | Konvensi umum init SSD1306 [DIASUMSIKAN] |
+
+#### C. Daftar Item yang Wajib Diverifikasi Pengguna terhadap Datasheet Asli [DIASUMSIKAN]:
+1. **Konfigurasi Charge Pump (`0x8D`):** Pastikan modul 7-pin pengguna menggunakan pompa muatan internal (`0x14`). Pada modul yang ditenagai murni dari pin VCC 3,3V PMOD tanpa suplai VCC panel terpisah (biasanya 7,5V - 12V), panel tidak akan menyala bila charge pump dinonaktifkan (`0x10`) [DIASUMSIKAN].
+2. **Timing Sinyal Reset Hardware (`RES`):** Durasi pulsa minimum LOW ($t_{RES}$) dan waktu tunggu pasca-reset ($t_{RES\_wait}$) sebelum transaksi SPI pertama dikirim.
+3. **Orientasi Segment & COM Scan (`0xA0/0xA1` dan `0xC0/0xC8`):** Pastikan orientasi tampilan tidak terbalik 180 derajat saat modul terpasang di header PMOD Basys 3.
+4. **Konfigurasi COM Pins (`0xDA`):** Pastikan nilai `0x12` cocok dengan layout panel fisik 128×64 (pada panel 128×32 biasanya bernilai `0x02`).
 
 ### 1.5 Mekanisme Buffer Swap & Sinkronisasi Frame
 - Pembaruan tampilan OLED dilakukan tepat setelah frame baru selesai didekode ke BRAM frame buffer dan sinyal swap bank BRAM aktif [DIVERIFIKASI: konsep `swap_ready` pada `hdl/frame_buffer.vhd` baris 41].
@@ -138,34 +155,89 @@ Modul hardware `oled_controller.vhd` akan mengimplementasikan State Machine (FSM
   Jika $\text{sample\_data} > \text{pwm\_cnt}$, pin output `audio_pwm` bernilai HIGH (`1`); jika tidak, bernilai LOW (`0`).
 
 ### 3.3 Protokol Framing Streaming UART untuk Video & Audio
-- **Analisis Kebutuhan Bandwidth Total pada 921.600 Baud (8N1):**
-  - Kapasitas efektif bus serial: $921.600 / 10 = 92.160\text{ Byte/detik}$.
-  - Kebutuhan laju streaming audio: $8.000\text{ Byte/detik}$.
-  - Kebutuhan laju streaming video rata-rata (30 FPS $\times$ rata-rata 270 B/frame): $\approx 8.100\text{ Byte/detik}$.
-  - Total laju rata-rata: $\approx 16.100\text{ Byte/detik}$ ($17,5\%$ kapasitas UART) [DIVERIFIKASI: perhitungan matematis D-5].
-  - Skenario terburuk (Frame video terpadat 707 B + audio per frame $8.000 / 30 = 267\text{ B}$):
-    Total payload per frame = $707 + 267 = 974\text{ Byte}$.
-    Waktu transfer UART = $974 / 92.160\text{ s} \approx 10,57\text{ ms} < 33,33\text{ ms}$ ($31,7\%$ kapasitas) [DIVERIFIKASI: `docs/DECISIONS.md` baris 28].
-- **Pilihan Format Protokol Framing [DIASUMSIKAN]:**
-  - **Opsi Framing Terpisah (Tipe Paket Berbeda):**
-    Paket Video RLE tetap menggunakan SOF `0x55AA` [DIVERIFIKASI: `hdl/packet_parser.vhd` baris 23].
-    Paket Audio menggunakan SOF baru `0x55AB`:
-    `[SOF 2B: 0x55AB] [LEN 2B: 267] [DATA ... 267B PCM] [CHK 2B] [EOF 2B: 0x55AA]`
-    *Keunggulan:* Modul `packet_parser.vhd` yang sudah ada dapat dengan mudah diperluas untuk mendeteksi byte SOF kedua dan merutekan data audio ke `audio_fifo` tanpa mengganggu state machine video.
 
-### 3.4 Ukuran FIFO Audio & Analisis Drift Jam
+#### A. Analisis Kebutuhan Bandwidth (Rata-rata vs Puncak) terhadap Kapasitas 92.160 B/s
+Kapasitas transmisi fisik serial pada $921.600\text{ baud}$ dengan format 8N1 (1 start, 8 data, 1 stop bit = 10 bit per karakter) adalah tepat:
+$$C_{\text{UART}} = \frac{921.600\text{ bit/s}}{10\text{ bit/Byte}} = 92.160\text{ Byte/detik}$$
+
+Kebutuhan laju streaming audio PCM 8 kHz 8-bit mono adalah konstan $8.000\text{ Byte/detik}$ [DIVERIFIKASI: D-5].
+
+**1. Angka Rata-rata (Dihitung dari Berkas Aliran Data Nyata):**
+- **Berdasarkan Klip Golden 90 Frame (`data/golden/stream_clip.bin`):**
+  - Total ukuran berkas: $18.909\text{ Byte}$ untuk 90 paket frame video.
+  - Ukuran paket rata-rata = $18.909 / 90 = 210,10\text{ Byte/frame}$ (payload video rata-rata $201,10\text{ B}$ + overhead framing $9\text{ B}$: 3B SOF, 2B FID, 2B LEN, 1B EOF, 1B CHK).
+  - Laju video rata-rata pada 30 FPS = $210,10 \times 30 = 6.303,00\text{ Byte/detik}$ ($6,84\%$ dari 92.160 B/s).
+  - Ditambah audio $8.000\text{ B/s}$:
+    $$\text{Total Bandwidth Rata-rata (Klip 90 frame)} = 6.303,00 + 8.000 = 14.303,00\text{ Byte/detik} \quad (\mathbf{15,52\%} \text{ dari } 92.160\text{ B/s})$$
+- **Berdasarkan Aliran Video Penuh 1.000 Frame (`data/stream_full.bin`):**
+  - Total ukuran berkas: $249.349\text{ Byte}$ untuk 1.000 paket frame video.
+  - Ukuran paket rata-rata = $249.349 / 1000 = 249,35\text{ Byte/frame}$ (payload video rata-rata $240,35\text{ B}$ + framing $9\text{ B}$).
+  - Laju video rata-rata pada 30 FPS = $249,35 \times 30 = 7.480,47\text{ Byte/detik}$ ($8,12\%$ dari 92.160 B/s).
+  - Ditambah audio $8.000\text{ B/s}$:
+    $$\text{Total Bandwidth Rata-rata (1.000 frame)} = 7.480,47 + 8.000 = 15.480,47\text{ Byte/detik} \quad (\mathbf{16,80\%} \text{ dari } 92.160\text{ B/s})$$
+
+**2. Angka Puncak (Worst-Case Frame):**
+- Frame video terpadat memiliki payload $707\text{ Byte}$ (+ framing $9\text{ B} = 716\text{ B/paket}$) [DIVERIFIKASI: `docs/DECISIONS.md` baris 27-28].
+- Jika 30 frame puncak dikirim berturut-turut: laju video puncak = $716 \times 30 = 21.480\text{ Byte/detik}$.
+- Ditambah audio per detik ($8.000\text{ B/s}$, atau dengan framing terpisah $\sim 8.270\text{ B/s}$):
+  $$\text{Total Bandwidth Puncak} = 21.480 + 8.270 = 29.750\text{ Byte/detik} \quad (\mathbf{32,28\%} \text{ dari } 92.160\text{ B/s})$$
+- *Kesimpulan Bandwidth:* Dalam skenario terpadat sekalipun, bus UART masih memiliki cadangan kapasitas (*headroom*) sebesar $\approx 67,7\%$, sehingga sama sekali bebas dari risiko saturasi [DIASUMSIKAN].
+
+#### B. Analisis Pilihan Protokol Framing Audio & Dampak RTL (D-14)
+Terdapat tiga opsi arsitektur framing audio streaming:
+
+- **Opsi (A) SOF Audio Terpisah (`0x55AB`):**
+  Paket audio menggunakan SOF baru `0x55 0xAB` [DIASUMSIKAN].
+  *Perilaku terhadap `packet_parser.vhd` saat ini (tanpa modifikasi):*
+  Pada modul [packet_parser.vhd](../hdl/packet_parser.vhd#L171-L205):
+  1. Byte `0x55` diterima di `HUNT_SOF_0` (baris 172) $\rightarrow$ FSM maju ke `HUNT_SOF_1`.
+  2. Byte `0xAB` tiba di `HUNT_SOF_1`. Karena baris 183 hanya mengecek `cur_byte = x"AA"` dan baris 186 `cur_byte = x"55"`, byte `0xAB` jatuh ke cabang `else` (baris 190-194):
+     `had_garbage <= '1'; return_state <= HUNT_SOF_0; state <= FETCH_BYTE;`
+  3. Seluruh paket audio dibuang sebagai data sampah (*garbage*).
+  4. Ketika paket video berikutnya tiba dengan SOF valid `0x55 0xAA 0x5A`, baris 201-204 mendeteksi `had_garbage = '1'`:
+     `res_cnt <= res_cnt + 1; had_garbage <= '0';`
+  *Konsekuensi:* Setiap paket audio akan memicu pertambahan penghitung kesalahan resinkronisasi (`cnt_resyncs` bertambah 1 per paket audio). Untuk mendukung Opsi A, FSM `packet_parser.vhd` wajib diubah secara struktural pada cabang SOF.
+
+- **Opsi (B) Multiplexing Audio dan Video dalam Satu Paket Gabungan:**
+  Setiap frame video memuat segmen audio tetap $266..267\text{ Byte}$ di awal payload diikuti aliran data RLE video.
+  *Konsekuensi:* Mengubah struktur payload RLE secara menyeluruh dan membatalkan seluruh berkas uji golden biner M2b (`stream_clip.bin`, `stream_expected.txt`) yang sudah lulus verifikasi [DIVERIFIKASI].
+
+- **Opsi (C) Tipe Paket di Bit Tertinggi `FRAME_ID` (`FRAME_ID(15)`) - Rekomendasi Unggulan:**
+  Menggunakan pola SOF standar yang sama persis: `0x55 0xAA 0x5A`, EOF `0xED`, dan Checksum XOR [DIASUMSIKAN].
+  Tipe muatan dibedakan melalui bit tertinggi `FRAME_ID`:
+  - `FRAME_ID(15) = '0'` : Paket Video RLE (`FRAME_ID` bernilai $0..6531$).
+  - `FRAME_ID(15) = '1'` : Paket Audio PCM (`FRAME_ID` bernilai `0x8000 | frame_idx`).
+  - Panjang payload audio per paket: $266..267\text{ Byte}$ (pada 30 FPS, $8.000 / 30 = 266,67\text{ sampel/frame}$).
+  *Analisis Dampak & Kompatibilitas:*
+  1. **Validasi Panjang (`CHECK_LEN`):** Batas generic `PAYLOAD_LEN_MIN` = 64 dan `PAYLOAD_LEN_MAX` = 1024 [DIVERIFIKASI: `hdl/packet_parser.vhd` baris 13-14]. Payload audio 266-267 Byte berada di dalam rentang ini ($64 \le 267 \le 1024$), sehingga lolos validasi pada baris 243 tanpa modifikasi parameter atau generic!
+  2. **Perhitungan Checksum:** Checksum XOR pada baris 219 (`READ_FID_H`) dan baris 225 (`READ_FID_L`) sudah mencakup kedua byte `FRAME_ID`. Integritas deteksi galat checksum tetap bekerja 100% tanpa perubahan logika akumulator [DIVERIFIKASI].
+  3. **Dampak ke RTL `packet_parser.vhd`:** Cukup menambahkan demux rute pada `DISPATCH_PAYLOAD` (baris 258-271): jika `frame_id_reg(15) = '1'`, aliran data diarahkan ke `audio_fifo_wr_data` / `audio_fifo_wr_en`, sedangkan jika `'0'`, diarahkan ke `m_axis_data` dekoder RLE.
+  4. **Dampak ke Manifest `stream_expected.txt` & Golden Tests:**
+     Pada [stream_expected.txt](../data/golden/stream_expected.txt#L18-L19), pengujian memeriksa `FIRST_FRAME_ID: 0` dan `LAST_FRAME_ID: 89`. Karena seluruh paket video pada berkas golden eksisting memiliki `FRAME_ID` $0..89$ (bit 15 selalu `'0'`), seluruh vektor uji golden (`stream_clip`, `stream_byte_insertion`, dll) dan testbench M2b (`tb_packet_parser`, `tb_stream_rx`, `tb_top_stream`) dijamin tetap **LULUS 100% (Bit-Exact)** tanpa perlu perubahan berkas golden!
+
+### 3.4 Ukuran FIFO Audio & Analisis Kompensasi Drift Jam (D-17)
 - **Ukuran FIFO Audio Hardware:**
   Menggunakan 1 blok RAMB18E1 (konfigurasi $1024 \times 8$).
   Pada laju 8.000 B/s, kapasitas 1.024 byte setara dengan penyangga audio selama:
   $$T_{\text{buf}} = \frac{1.024\text{ Byte}}{8.000\text{ Byte/s}} = 128\text{ ms} \quad (\approx 3,84\text{ frame video pada 30 FPS})$$
 - **Analisis Drift Akumulatif Sepanjang Video Penuh (217,84 detik):**
   - Toleransi osilator kristal 100 MHz Basys 3: $\pm 50\text{ ppm}$ [DIASUMSIKAN: datasheet Basys 3].
-  - Toleransi clock audio host PC: $\approx \pm 200\text{ ppm}$ [DIVERIFIKASI: pengujian empiris `test_stream_player.py` dan tolok ukur WASAPI/MME].
+  - Toleransi clock audio host PC: $\approx \pm 200\text{ ppm}$ [DIVERIFIKASI: pengujian empiris `test_stream_player.py`].
   - Deviasi drift terburuk antar-osilator: $\Delta f \approx 250\text{ ppm}$.
   - Akumulasi selisih sampel sepanjang 217,84 detik:
     $$\Delta N_{\text{sample}} = 217,84\text{ s} \times 8.000\text{ B/s} \times 250 \times 10^{-6} \approx 435,7\text{ Byte}$$
     Jika deviasi rata-rata berada pada kisaran $\sim 100\text{ ppm}$, drift hanya mencapai $\approx 174\text{ Byte}$ [DIASUMSIKAN].
-  - *Mitigasi Drift:* Kapasitas FIFO 1.024 Byte cukup besar untuk menyerap drift tanpa overflow jika streamer PC mengalirkan audio terkunci pada cadence frame video, atau streamer memantau watermark FIFO via sinyal status balik RsTx [DIASUMSIKAN].
+
+#### Pilihan Mekanisme Kompensasi Drift FIFO (D-17):
+- **Opsi 1 (Pacing dari Host PC):**
+  Host PC memantau cadence jam audio dan menyinkronkan pengiriman paket audio terhadap audio hardware PC [DIASUMSIKAN].
+- **Opsi 2 (Penyesuaian Adaptif Lokal di Hardware RTL FPGA):**
+  FPGA memantau tingkat keterisian buffer FIFO audio (`fifo_occupancy` $0..1024$):
+  - **Ambang Batas Atas (High Watermark, misal > 80% = ~820 B):** Jika FIFO audio terlalu penuh karena jam PC sedikit lebih cepat, FSM tick audio membuang (*drop*) 1 sampel pada pulsa tick 8 kHz berikutnya.
+  - **Ambang Batas Bawah (Low Watermark, misal < 20% = ~200 B):** Jika FIFO audio hampir kosong karena jam PC sedikit lebih lambat, FSM tick audio menyisipkan (*repeat/duplicate*) sampel terakhir pada pulsa tick 8 kHz berikutnya.
+  - *Persepsi Audio:* Pada laju 8 kHz, durasi 1 sampel adalah $125\ \mu\text{s}$. Penyesuaian 1 sampel yang hanya terjadi sekali setiap 4-10 detik ($\Delta f \approx 100-250\text{ ppm}$) sama sekali tidak terdengar oleh telinga manusia (*imperceptible click/artifact*) [DIASUMSIKAN].
+  - *Batas Waktu Pengisian Awal (Pre-roll Buffer Lead Time):*
+    Sebelum modul PWM audio mulai membaca sampel pertama, sistem harus menunggu hingga FIFO audio terisi setengah penuh ($\sim 512\text{ sampel} = 64\text{ ms}$ penyangga audio, setara 2 frame video pada 30 FPS). Selama fase pengisian awal ini, output PWM dipertahankan pada tingkat hening (`0x80`). Setelah ambang 512 byte tercapai, tick generator 8 kHz mulai aktif [DIASUMSIKAN].
 
 ---
 
@@ -244,13 +316,14 @@ Sebelum pengujian di board fisik Basys 3 dilakukan, seluruh fungsionalitas modul
 
 ## 6. Daftar Keputusan Desain Terbuka (Open Decisions D-14..D-17)
 
-Keputusan desain teknis berikut dicatat sebagai keputusan terbuka yang tetap menunggu persetujuan tim sebelum implementasi RTL M4 dimulai:
+Keputusan desain teknis berikut dicatat sebagai keputusan terbuka yang tetap menunggu persetujuan tim sebelum implementasi RTL M4 dimulai (tidak ada keputusan yang ditutup sepihak):
 
-| ID | Topik Keputusan | Pilihan Alternatif | Status | Rekomendasi Awal |
+| ID | Topik Keputusan | Pilihan Alternatif | Status | Rekomendasi Analisis |
 |---|---|---|---|---|
-| **D-14** | Protokol Framing Paket Audio Streaming | **(A)** SOF khusus `0x55AB` untuk paket audio terpisah.<br>**(B)** Multiplexing audio dan video dalam satu paket gabungan. | **TERBUKA** | Direkomendasikan **(A)** karena tidak mengubah struktur paket video RLE yang sudah stabil di M2b. |
+| **D-14** | Protokol Framing Paket Audio Streaming | **(A)** SOF khusus `0x55AB` untuk paket audio terpisah.<br>**(B)** Multiplexing audio dan video dalam satu paket gabungan.<br>**(C)** Tipe paket di bit tertinggi `FRAME_ID(15)` dengan SOF `0x55 0xAA 0x5A` standar. | **TERBUKA** | Direkomendasikan **(C)** karena payload 266-267 B lolos validasi panjang 64..1024 B tanpa ubah parameter generic, checksum XOR sudah mencakup FRAME_ID, dan menjaga kompatibilitas 100% terhadap seluruh golden test & testbench M2b. |
 | **D-15** | Arsitektur Port B Frame Buffer BRAM | **(A)** Arbitrase Time-Division Multiplexing (TDM) pada Port B tunggal.<br>**(B)** Duplikasi instance frame buffer BRAM (+1 RAMB18E1). | **TERBUKA** | Direkomendasikan **(B)** karena BRAM Basys 3 tersisa 49 Tile ($98\%$) dan mengeliminasi kerumitan logika arbitrase. |
 | **D-16** | Parameter Komponen Filter Analog RC Audio PMOD | **(A)** $R = 1\text{ k}\Omega, C = 10\text{ nF}$ ($f_c \approx 15,9\text{ kHz}$, arus pin $\approx 3,3\text{ mA} < 12\text{ mA}$).<br>**(B)** Filter RC dua tingkat (*2nd-order passive*) untuk pelemahan carrier lebih tajam. | **TERBUKA** | Direkomendasikan **(A)** untuk kemudahan perakitan awal di breadboard dengan earphone 32 ohm via kapasitor kopling DC $10\ \mu\text{F}$. |
-| **D-17** | Mekanisme Kompensasi Drift Buffer Audio FIFO | **(A)** Kontrol laju audio murni dari Host PC (mengatur interval pengiriman paket audio).<br>**(B)** Logika drop/duplicate sampel adaptif di RTL FPGA saat watermark FIFO mendekati batas ekstrim. | **TERBUKA** | Direkomendasikan **(A)** mengikuti prinsip PC sebagai pemegang waktu utama (D-3). |
+| **D-17** | Mekanisme Kompensasi Drift Buffer Audio FIFO | **(A)** Kontrol laju audio murni dari Host PC (mengatur interval pengiriman paket audio).<br>**(B)** Penyesuaian adaptif lokal di FPGA (drop/insert 1 sampel saat isi FIFO melewati ambang batas >80% atau <20%, dengan pre-roll lead time 512 B). | **TERBUKA** | Direkomendasikan kombinasi **(A) & (B)**: Host PC mengalirkan audio terkunci pada cadence frame, dan FPGA memiliki proteksi drop/insert lokal sebagai pengaman ekstra. |
 
 ---
+
