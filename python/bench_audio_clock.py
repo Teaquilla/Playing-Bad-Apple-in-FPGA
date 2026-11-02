@@ -116,7 +116,7 @@ def run_benchmark(
     audio_dev.stop()
     audio_dev.close()
 
-    # Hitung metrik statistik
+    # Hitung metrik statistik overshoot jam audio (internal domain audio)
     sorted_diffs = sorted(clock_diffs)
     mean_diff = sum(clock_diffs) / len(clock_diffs) if clock_diffs else 0.0
     p99_idx = int(0.99 * (len(sorted_diffs) - 1)) if sorted_diffs else 0
@@ -134,6 +134,59 @@ def run_benchmark(
     drift_ppm = disc_final.get("drift_ppm", 0.0)
     se_ppm = disc_final.get("slope_std_err_ppm", 0.0)
 
+    # Hitung metrik di domain monotonik (mengabaikan 3 frame pertama k=0,1,2)
+    mono_times = [r["mono_time"] for r in records]
+    n_frames = len(mono_times)
+
+    mono_interval_devs: List[float] = []
+    mono_line_residuals: List[float] = []
+    std_int_dev = 0.0
+    p99_int_dev = 0.0
+    max_int_dev = 0.0
+    std_res = 0.0
+    max_res = 0.0
+
+    if n_frames > 3:
+        # 1. Penyimpangan selang kirim antar frame: (mono_time[k] - mono_time[k-1] - 1/FPS)
+        for k in range(3, n_frames):
+            dt_mono = mono_times[k] - mono_times[k - 1]
+            dev_ms = (dt_mono - frame_interval) * 1000.0
+            mono_interval_devs.append(dev_ms)
+
+        m_count = len(mono_interval_devs)
+        if m_count >= 2:
+            mean_int = sum(mono_interval_devs) / m_count
+            var_int = sum((x - mean_int) ** 2 for x in mono_interval_devs) / (m_count - 1)
+            std_int_dev = math.sqrt(var_int)
+            sorted_int = sorted(mono_interval_devs)
+            p99_int_dev = sorted_int[int(0.99 * (m_count - 1))]
+            max_int_dev = max(mono_interval_devs)
+
+        # 2. Residual terhadap garis lurus terbaik: mono_time[k] ~ a + k/FPS untuk k >= 3
+        # Garis lurus dengan kemiringan 1/FPS meminimalkan residual kuadrat saat a = mean(mono_time[k] - k/FPS)
+        y_vals = [mono_times[k] - (k * frame_interval) for k in range(3, n_frames)]
+        a_opt = sum(y_vals) / len(y_vals)
+
+        for k in range(3, n_frames):
+            pred_time = a_opt + (k * frame_interval)
+            res_ms = (mono_times[k] - pred_time) * 1000.0
+            mono_line_residuals.append(res_ms)
+
+        r_count = len(mono_line_residuals)
+        if r_count >= 2:
+            var_res = sum(r ** 2 for r in mono_line_residuals) / (r_count - 1)
+            std_res = math.sqrt(var_res)
+            max_res = max(abs(r) for r in mono_line_residuals)
+
+    # Lengkapi catatan per-frame untuk CSV
+    for k in range(n_frames):
+        if k >= 3:
+            records[k]["mono_interval_dev_ms"] = mono_interval_devs[k - 3]
+            records[k]["mono_line_residual_ms"] = mono_line_residuals[k - 3]
+        else:
+            records[k]["mono_interval_dev_ms"] = 0.0
+            records[k]["mono_line_residual_ms"] = 0.0
+
     # Simpan CSV jika diminta
     if csv_path:
         csv_file = Path(csv_path)
@@ -143,7 +196,8 @@ def run_benchmark(
                 f,
                 fieldnames=[
                     "frame", "target_time", "actual_time", "diff_ms",
-                    "mono_time", "frames_played", "drift_ppm", "slope_std_err_ppm"
+                    "mono_time", "frames_played", "drift_ppm", "slope_std_err_ppm",
+                    "mono_interval_dev_ms", "mono_line_residual_ms"
                 ],
             )
             writer.writeheader()
@@ -158,7 +212,9 @@ def run_benchmark(
         "discipline": "on" if use_discipline else "off",
         "reported_latency_ms": reported_latency_ms,
         "cb_steps_ms": {"min": cb_min, "med": cb_med, "max": cb_max},
-        "diff_ms": {"mean": mean_diff, "p99": p99_diff, "max": max_diff},
+        "overshoot_audio_ms": {"mean": mean_diff, "p99": p99_diff, "max": max_diff},
+        "mono_interval_dev_ms": {"std": std_int_dev, "p99": p99_int_dev, "max": max_int_dev},
+        "mono_line_residual_ms": {"std": std_res, "max": max_res},
         "initial_offset_ms": initial_offset_ms,
         "drift_ppm": drift_ppm,
         "slope_std_err_ppm": se_ppm,
@@ -191,22 +247,26 @@ def main() -> None:
     )
 
     cb = res["cb_steps_ms"]
-    diff = res["diff_ms"]
+    diff = res["overshoot_audio_ms"]
+    m_int = res["mono_interval_dev_ms"]
+    m_res = res["mono_line_residual_ms"]
     flags = res["callback_flags"]
     print("=" * 72)
     print("HASIL TOLOK UKUR JAM AUDIO (AudioClock)")
     print("=" * 72)
-    print(f"Host API         : {res['hostapi']} (Device #{res['device_index']}: {res['device_name']})")
-    print(f"Durasi Uji       : {res['duration_sec']:.1f} s (Aktual: {res['elapsed_sec']:.2f} s)")
-    print(f"Disiplin Jam     : {res['discipline']}")
-    print(f"Reported Latency : {res['reported_latency_ms']:.2f} ms")
-    print(f"Initial Offset   : {res['initial_offset_ms']:.2f} ms")
-    print(f"Audio Clock Step : min={cb['min']:.2f} ms, med={cb['med']:.2f} ms, max={cb['max']:.2f} ms")
-    print(f"Send vs Sched    : mean={diff['mean']:+.2f} ms, p99={diff['p99']:+.2f} ms, max={diff['max']:+.2f} ms")
-    print(f"Drift Slope      : {res['drift_ppm']:+.1f} ppm +/- {res['slope_std_err_ppm']:.1f} ppm")
-    print(f"Callback Flags   : underflow={flags.get('output_underflow', 0)}, overflow={flags.get('output_overflow', 0)}, other={flags.get('other', 0)}")
+    print(f"Host API              : {res['hostapi']} (Device #{res['device_index']}: {res['device_name']})")
+    print(f"Durasi Uji            : {res['duration_sec']:.1f} s (Aktual: {res['elapsed_sec']:.2f} s)")
+    print(f"Disiplin Jam          : {res['discipline']}")
+    print(f"Reported Latency      : {res['reported_latency_ms']:.2f} ms")
+    print(f"Initial Offset        : {res['initial_offset_ms']:.2f} ms")
+    print(f"Audio Clock Step      : min={cb['min']:.2f} ms, med={cb['med']:.2f} ms, max={cb['max']:.2f} ms")
+    print(f"Overshoot Jam Audio   : mean={diff['mean']:+.2f} ms, p99={diff['p99']:+.2f} ms, max={diff['max']:+.2f} ms")
+    print(f"Penyimpangan Selang   : std={m_int['std']:.2f} ms, p99={m_int['p99']:+.2f} ms, max={m_int['max']:+.2f} ms (k>=3)")
+    print(f"Residual Garis Mono   : std={m_res['std']:.2f} ms, max={m_res['max']:.2f} ms (k>=3)")
+    print(f"Drift Slope           : {res['drift_ppm']:+.1f} ppm +/- {res['slope_std_err_ppm']:.1f} ppm")
+    print(f"Callback Flags        : underflow={flags.get('output_underflow', 0)}, overflow={flags.get('output_overflow', 0)}, other={flags.get('other', 0)}")
     if res['csv_path']:
-        print(f"CSV Tersimpan    : {res['csv_path']}")
+        print(f"CSV Tersimpan         : {res['csv_path']}")
     print("=" * 72)
 
 

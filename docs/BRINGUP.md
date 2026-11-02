@@ -201,7 +201,9 @@ Untuk menguji performa jam audio (`AudioClock`), stabilitas penjadwalan frame vi
 - **Reported Latency (ms):** Estimasi latensi perangkat keras output audio yang dilaporkan oleh driver audio/DAC.
 - **Initial Offset (ms):** Waktu tunggu dari pemanggilan `start()` hingga tibanya callback audio pertama.
 - **Audio Clock Step (min/med/max ms):** Interval waktu antar pembaruan callback audio fisik.
-- **Send vs Sched (mean/p99/max ms):** Selisih antara waktu pengiriman aktual terhadap target waktu jadwal frame ($k/\text{FPS}$). Disiplin jam yang aktif menapis jitter callback buffer sehingga deviasi $p99 \le 5\text{ ms}$.
+- **Overshoot Jam Audio (mean/p99/max ms):** Kelebihan waktu (*overshoot*) pada domain jam audio itu sendiri (`clock.now() - target_time`) setelah fungsi `sleep_until` selesai menunggu target waktu frame ($k/\text{FPS}$).
+- **Penyimpangan Selang Kirim Monotonik (std/p99/max ms):** Variasi interval waktu kirim nyata antar frame pada jam monotonik sistem (`mono_time[k] - mono_time[k-1] - 1/FPS`) untuk $k \ge 3$.
+- **Residual Garis Lurus Monotonik (std/max ms):** Deviasi waktu kirim monotonik terhadap garis lurus regresi terbaik `mono_time[k] ~ a + k/FPS` untuk $k \ge 3$.
 - **Drift Slope ($\text{ppm} \pm \sigma_{\text{ppm}}$):** Estimasi penyimpangan frekuensi clock audio fisik terhadap jam monotonik sistem dalam satuan ppm (*parts-per-million*) beserta nilai ketidakpastian standar error ($\pm \sigma_{\text{ppm}}$).
 - **Callback Flags:** Indikator *underflow* atau *overflow* buffer audio dari driver.
 
