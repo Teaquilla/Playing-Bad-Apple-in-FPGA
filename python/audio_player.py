@@ -21,7 +21,9 @@ Fitur:
 
 from __future__ import annotations
 import abc
+import math
 import os
+from collections import deque
 import sys
 import time
 import warnings
@@ -85,6 +87,13 @@ class AudioDevice(abc.ABC):
     def callback_flags(self) -> Dict[str, int]:
         """Mengembalikan statistik flag callback audio (misal: underflow, overflow)."""
         return {}
+
+    def last_callback_audio(self) -> float:
+        """Mengembalikan posisi waktu audio pada callback terakhir."""
+        sr = self.sample_rate()
+        if sr <= 0:
+            return 0.0
+        return self.start_sec() + (self.frames_played() / float(sr)) - self.output_latency()
 
 
 class FakeAudioDevice(AudioDevice):
@@ -209,6 +218,10 @@ class SoundDeviceAudio(AudioDevice):
         self._callback_flags: Dict[str, int] = {"output_underflow": 0, "output_overflow": 0, "other": 0}
 
         target_device = device
+        is_wasapi = False
+        if hostapi and "wasapi" in hostapi.lower():
+            is_wasapi = True
+
         if target_device is None and hostapi and hostapi.lower() != "default":
             for api_info in self._sd.query_hostapis():
                 if hostapi.lower() in api_info["name"].lower():
@@ -220,6 +233,22 @@ class SoundDeviceAudio(AudioDevice):
                                 break
                     break
 
+        if target_device is not None:
+            try:
+                dev_info = self._sd.query_devices(target_device)
+                api_info = self._sd.query_hostapis(dev_info["hostapi"])
+                if "wasapi" in api_info["name"].lower():
+                    is_wasapi = True
+            except Exception:
+                pass
+
+        extra_settings = None
+        if is_wasapi and hasattr(self._sd, "WasapiSettings"):
+            try:
+                extra_settings = self._sd.WasapiSettings(auto_convert=True)
+            except Exception:
+                pass
+
         # Inisialisasi RawOutputStream dengan buffer mentah tanpa numpy
         self._stream = self._sd.RawOutputStream(
             samplerate=self._sample_rate,
@@ -227,6 +256,7 @@ class SoundDeviceAudio(AudioDevice):
             dtype="int16",
             callback=self._audio_callback,
             device=target_device,
+            extra_settings=extra_settings,
         )
 
     def _audio_callback(self, outdata: memoryview, frames: int, time_info, status) -> None:
@@ -306,43 +336,98 @@ class SoundDeviceAudio(AudioDevice):
 
 
 class AudioClock:
-    """Jam acuan berbasis audio dengan interpolasi halus dan fallback anti-stall.
+    """Jam acuan berbasis audio dengan interpolasi halus, disiplin regresi linear jendela geser, dan fallback anti-stall.
 
-    Rumus Waktu Fisik:
-    ------------------
-    - `base_audio = start_sec + (frames_played / sample_rate) - output_latency`
-    - `dt_interp = time.monotonic() - last_callback_mono` (interpolasi di antara callback)
-    - `now() = base_audio + dt_interp`
-
-    Proteksi Stall & Fallback:
-    --------------------------
-    - Jika audio aktif namun waktu sejak callback terakhir melebihi `stall_timeout_sec`
-      (default: 100 ms), atau audio berhenti setelah berjalan, jam otomatis beralih ke
-      MonotonicClock yang berjangkar pada posisi waktu audio terakhir.
-    - Peringatan UserWarning dicatat tepat satu kali.
-    - Pemanggilan `sleep_until(target_time)` tetap menunda eksekusi hingga target_time
-      tercapai pada laju real-time sehingga TIDAK terjadi pengiriman burst frame.
+    Rumus Waktu Fisik & Disiplin:
+    -----------------------------
+    - Mode Standar (Disiplin OFF):
+      `now() = base_audio + dt_interp`
+    - Mode Disiplin (Disiplin ON):
+      Regresi linear pada jendela geser ~2 s terhadap pasangan (t_mono, t_audio) di tiap callback.
+      `now() = alpha * t_mono_now + beta` (menapis jitter callback buffer dan mengunci drift oscillator).
     """
 
     def __init__(
         self,
         device: AudioDevice,
         stall_timeout_sec: float = 0.100,
-        enable_interpolation: bool = True
+        enable_interpolation: bool = True,
+        discipline: bool = False,
+        discipline_window_sec: float = 2.0,
+        mono_fn: Callable[[], float] = time.monotonic,
     ):
         self.device = device
         self.stall_timeout_sec = max(0.010, stall_timeout_sec)
         self.enable_interpolation = enable_interpolation
+        self.discipline = discipline
+        self.discipline_window_sec = max(0.200, discipline_window_sec)
+        self.mono_fn = mono_fn
         self._last_time: float = 0.0
         self._started: bool = False
         self._stalled: bool = False
         self._anchor_audio_time: float = 0.0
-        self._anchor_mono_time: float = time.monotonic()
+        self._anchor_mono_time: float = self.mono_fn()
         self._stall_warning_emitted: bool = False
+
+        # Status Disiplin Jam
+        self._history: deque = deque()
+        self._last_recorded_cb_mono: float = -1.0
+        self._alpha: Optional[float] = None
+        self._beta: Optional[float] = None
+        self._slope_std_err: float = 0.0
 
     @property
     def is_stalled(self) -> bool:
         return self._stalled
+
+    def _update_discipline(self, cb_mono: float, cb_audio: float) -> None:
+        if cb_mono == self._last_recorded_cb_mono:
+            return
+        self._last_recorded_cb_mono = cb_mono
+        self._history.append((cb_mono, cb_audio))
+
+        # Pangkas riwayat di luar jendela geser
+        while self._history and (cb_mono - self._history[0][0]) > self.discipline_window_sec:
+            self._history.popleft()
+
+        n = len(self._history)
+        if n >= 3:
+            sum_x = 0.0
+            sum_y = 0.0
+            for x, y in self._history:
+                sum_x += x
+                sum_y += y
+            x_m = sum_x / n
+            y_m = sum_y / n
+
+            s_xx = 0.0
+            s_xy = 0.0
+            for x, y in self._history:
+                dx = x - x_m
+                dy = y - y_m
+                s_xx += dx * dx
+                s_xy += dx * dy
+
+            if s_xx > 1e-9:
+                self._alpha = s_xy / s_xx
+                self._beta = y_m - self._alpha * x_m
+                ss_res = 0.0
+                for x, y in self._history:
+                    err = y - (self._alpha * x + self._beta)
+                    ss_res += err * err
+                s2 = ss_res / max(1, n - 2)
+                self._slope_std_err = math.sqrt(s2 / s_xx)
+
+    def get_discipline_stats(self) -> Dict[str, Any]:
+        """Mengembalikan statistik model disiplin jam terkini."""
+        return {
+            "discipline": self.discipline,
+            "samples": len(self._history),
+            "alpha": self._alpha,
+            "beta": self._beta,
+            "drift_ppm": (self._alpha - 1.0) * 1e6 if self._alpha is not None else 0.0,
+            "slope_std_err_ppm": self._slope_std_err * 1e6 if self._slope_std_err else 0.0,
+        }
 
     def now(self) -> float:
         """Mengembalikan posisi pemutaran audio fisik terkini dalam detik."""
@@ -350,7 +435,7 @@ class AudioClock:
         if sr <= 0:
             return 0.0
 
-        now_mono = time.monotonic()
+        now_mono = self.mono_fn()
 
         if not self._stalled:
             base_audio = self.device.start_sec() + (self.device.frames_played() / float(sr)) - self.device.output_latency()
@@ -358,7 +443,10 @@ class AudioClock:
             if self.device.is_active():
                 self._started = True
 
-            dt_callback = max(0.0, now_mono - self.device.last_callback_mono()) if self.enable_interpolation else 0.0
+            cb_mono = self.device.last_callback_mono()
+            self._update_discipline(cb_mono, base_audio)
+
+            dt_callback = max(0.0, now_mono - cb_mono) if self.enable_interpolation else 0.0
 
             # Periksa apakah terjadi stall saat sedang aktif atau berhenti setelah sempat berjalan
             is_stalled_condition = False
@@ -381,7 +469,11 @@ class AudioClock:
                     )
                     self._stall_warning_emitted = True
             else:
-                raw_time = base_audio + dt_callback
+                if self.discipline and self._alpha is not None and len(self._history) >= 3:
+                    raw_time = self._alpha * now_mono + self._beta
+                else:
+                    raw_time = base_audio + dt_callback
+
                 if raw_time > self._last_time:
                     self._last_time = raw_time
                 return max(0.0, self._last_time)

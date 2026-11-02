@@ -743,3 +743,117 @@ def test_cli_subprocess_smoke_tests(tmp_path):
     res_d = subprocess.run(cmd_d, cwd=repo_root, capture_output=True, text=True)
     assert res_d.returncode == 0, f"Smoke test (d) gagal: {res_d.stderr}"
     assert "Frame Terkirim: 3" in res_d.stdout
+
+
+# ------------------------------------------------------------------------------
+# Test (s): Disiplin Jam Audio Terhadap Jitter Sintetis (+-15 ms) & Drift (+-200 ppm)
+# ------------------------------------------------------------------------------
+class JitteryDriftingAudioDevice(FakeAudioDevice):
+    """Perangkat audio tiruan dengan injeksi drift frekuensi (+-200 ppm)
+    dan jitter pengiriman callback (+-15 ms).
+    """
+
+    def __init__(
+        self,
+        sample_rate: int = 44100,
+        drift_ppm: float = 200.0,
+        jitter_max_ms: float = 15.0,
+        callback_interval_sec: float = 0.020,
+        seed: int = 42,
+    ):
+        super().__init__(sample_rate=sample_rate, latency_sec=0.020, start_sec=0.0, auto_advance=False)
+        self.drift_rate = 1.0 + (drift_ppm * 1e-6)
+        self.jitter_sec = jitter_max_ms / 1000.0
+        self.cb_interval = callback_interval_sec
+        import random
+        self.rng = random.Random(seed)
+        self._sim_mono_time = 1000.0
+        self._next_cb_mono = self._sim_mono_time + self.cb_interval
+        self._cb_mono = self._sim_mono_time
+        self._cb_frames = 0
+
+    def start(self) -> None:
+        super().start()
+        self._sim_mono_time = 1000.0
+        self._next_cb_mono = self._sim_mono_time + self.cb_interval
+        self._cb_mono = self._sim_mono_time
+        self._cb_frames = 0
+
+    def advance_simulation(self, target_mono: float) -> None:
+        """Memajukan waktu simulasi dan memicu callback jika waktunya tiba."""
+        self._sim_mono_time = target_mono
+        while self._sim_mono_time >= self._next_cb_mono:
+            self._cb_mono = self._next_cb_mono
+            elapsed_mono = self._cb_mono - 1000.0
+            true_audio_sec = elapsed_mono * self.drift_rate
+            # Tambahkan jitter sintetis pada estimasi callback buffer
+            jitter = self.rng.uniform(-self.jitter_sec, self.jitter_sec)
+            jittered_audio = max(0.0, true_audio_sec + jitter + self.output_latency())
+            self._cb_frames = int(round(jittered_audio * self.sample_rate()))
+            self._next_cb_mono += self.cb_interval
+
+    def frames_played(self) -> int:
+        return self._cb_frames
+
+    def last_callback_mono(self) -> float:
+        return self._cb_mono
+
+    def true_audio_time(self, current_mono: float) -> float:
+        return (current_mono - 1000.0) * self.drift_rate
+
+
+def run_discipline_experiment(discipline: bool) -> tuple[float, float]:
+    """Menjalankan simulasi pengiriman frame dengan FakeAudioDevice jittery/drifting."""
+    dev = JitteryDriftingAudioDevice(drift_ppm=200.0, jitter_max_ms=15.0, seed=123)
+    dev.start()
+    sim_mono = [1000.0]
+    clock = AudioClock(
+        dev,
+        stall_timeout_sec=0.200,
+        discipline=discipline,
+        discipline_window_sec=2.0,
+        mono_fn=lambda: sim_mono[0]
+    )
+
+    fps = 30.0
+    dt_frame = 1.0 / fps
+    total_frames = 90  # 3 detik
+
+    send_diffs_ms = []
+    lock_errors_ms = []
+
+    for frame_idx in range(total_frames):
+        t_sched = frame_idx * dt_frame
+        while True:
+            dev.advance_simulation(sim_mono[0])
+            t_clock = clock.now()
+            if t_clock >= t_sched:
+                diff_ms = abs(t_clock - t_sched) * 1000.0
+                true_audio = dev.true_audio_time(sim_mono[0])
+                lock_err_ms = abs(t_clock - true_audio) * 1000.0
+                send_diffs_ms.append(diff_ms)
+                if frame_idx >= 30:  # Evaluasi setelah pemanasan jendela 1 detik
+                    lock_errors_ms.append(lock_err_ms)
+                break
+            sim_mono[0] += 0.001  # langkah simulasi 1 ms
+
+    import numpy as np
+    p99_diff = float(np.percentile(send_diffs_ms, 99))
+    max_lock_err = float(np.max(lock_errors_ms)) if lock_errors_ms else 0.0
+    return p99_diff, max_lock_err
+
+
+def test_audio_clock_discipline_synthetic_jitter_and_drift():
+    """Memverifikasi bahwa disiplin jam audio (regresi linear jendela geser ~2s)
+    menekan jitter +-15 ms dan mengunci drift +200 ppm sehingga p99 <= 5 ms dan lock error <= 10 ms.
+    Tes juga memverifikasi bahwa bila disiplin dinonaktifkan (discipline=False), p99 melebihi 5 ms.
+    """
+    # 1. Dengan disiplin AKTIF (discipline=True):
+    p99_on, lock_err_on = run_discipline_experiment(discipline=True)
+    assert p99_on <= 5.0, f"Disiplin ON gagal: p99 diff {p99_on:.2f} ms > 5 ms"
+    assert lock_err_on <= 10.0, f"Disiplin ON gagal: lock error {lock_err_on:.2f} ms > 10 ms"
+
+    # 2. Dengan disiplin NONAKTIF (discipline=False):
+    p99_off, lock_err_off = run_discipline_experiment(discipline=False)
+    # Jitter +-15 ms langsung lolos ke jam sehingga p99 melebihi 5 ms
+    assert p99_off > 5.0, f"Disiplin OFF seharusnya menghasilkan p99 > 5 ms, didapat {p99_off:.2f} ms"

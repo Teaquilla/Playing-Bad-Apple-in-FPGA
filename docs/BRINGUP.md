@@ -177,3 +177,31 @@ Untuk memvalidasi pemutaran video streaming dari PC ke FPGA Basys 3:
 | **Karakter rusak / simbol acak di terminal** | Ketidakcocokan baud rate atau distorsi sinyal UART pada kabel USB panjang. | 1. Pastikan baud rate terminal disetel tepat pada `921600`. <br>2. Simpan dump raw hex menggunakan `uart_capture.py --raw-dump debug.bin` untuk menganalisis apakah kesalahan terjadi pada bit rate atau framing [DIASUMSIKAN]. |
 | **Gambar terpotong atau baris berantakan (tearing)** | Terminal tidak mendukung escape sequence ANSI `\x1b[H` (cursor home) atau buffer terminal terlalu kecil. | 1. Gunakan terminal modern seperti Windows Terminal atau PuTTY. <br>2. Pastikan lebar terminal minimal 128 karakter. |
 | **Animasi berhenti / macet (freeze)** | Tombol `btnC` aktif atau terjadi kondisi stall pada pipeline sinkronisasi. | Tekan tombol tengah `btnC` pada Basys 3 untuk mereset seluruh sistem kembali ke frame 0 [DIASUMSIKAN]. |
+
+---
+
+## 8. Tolok Ukur Jam Audio Menggunakan `bench_audio_clock.py`
+
+Untuk menguji performa jam audio (`AudioClock`), stabilitas penjadwalan frame video terhadap callback audio PC, dan akurasi model disiplin jam tanpa/dengan regresi linear jendela geser:
+
+```powershell
+.\.venv\Scripts\python.exe python/bench_audio_clock.py --seconds 20 --hostapi wasapi --discipline on --csv data/benchmarks/wasapi_20s_on.csv
+```
+
+### Parameter:
+- `--wav PATH`: Path ke berkas WAV acuan (default: `data/audio/bad_apple.wav`).
+- `--seconds N`: Durasi pengujian dalam detik (default: `20.0`).
+- `--hostapi API`: Nama Host API PortAudio/Windows (`mme`, `directsound`, `wasapi`, atau `default`).
+- `--device ID`: Nomor indeks perangkat output suara `sounddevice` (opsional).
+- `--discipline {off,on}`: Mengaktifkan atau menonaktifkan disiplin jam regresi linear jendela geser (default: `off`).
+- `--fps FPS`: Laju frame video simulasi acuan (default: `30.0`).
+- `--csv PATH`: Path penyimpanan berkas rekaman per-frame CSV (opsional).
+
+### Metrik yang Dilaporkan:
+- **Reported Latency (ms):** Estimasi latensi perangkat keras output audio yang dilaporkan oleh driver audio/DAC.
+- **Initial Offset (ms):** Waktu tunggu dari pemanggilan `start()` hingga tibanya callback audio pertama.
+- **Audio Clock Step (min/med/max ms):** Interval waktu antar pembaruan callback audio fisik.
+- **Send vs Sched (mean/p99/max ms):** Selisih antara waktu pengiriman aktual terhadap target waktu jadwal frame ($k/\text{FPS}$). Disiplin jam yang aktif menapis jitter callback buffer sehingga deviasi $p99 \le 5\text{ ms}$.
+- **Drift Slope ($\text{ppm} \pm \sigma_{\text{ppm}}$):** Estimasi penyimpangan frekuensi clock audio fisik terhadap jam monotonik sistem dalam satuan ppm (*parts-per-million*) beserta nilai ketidakpastian standar error ($\pm \sigma_{\text{ppm}}$).
+- **Callback Flags:** Indikator *underflow* atau *overflow* buffer audio dari driver.
+

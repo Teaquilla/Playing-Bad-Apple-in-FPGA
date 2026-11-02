@@ -463,6 +463,8 @@ class StreamPlayer:
         }
         if hasattr(self.clock, "callback_flags"):
             stats["audio_callback_flags"] = self.clock.callback_flags()
+        if hasattr(self.clock, "get_discipline_stats"):
+            stats["discipline_stats"] = self.clock.get_discipline_stats()
         return stats
 
     def play_packets(
@@ -591,6 +593,13 @@ def main() -> None:
         help="Indeks perangkat output audio spesifik (default: None, menggunakan perangkat default host API).",
     )
     parser.add_argument(
+        "--audio-discipline",
+        type=str,
+        choices=["on", "off"],
+        default="off",
+        help="Disiplin jam audio berbasis regresi linear jendela geser ~2 s (default: off).",
+    )
+    parser.add_argument(
         "--audio-stall-ms",
         type=float,
         default=100.0,
@@ -710,7 +719,8 @@ def main() -> None:
                 hostapi=args.audio_hostapi,
                 device=args.audio_device,
             )
-        clock = AudioClock(audio_dev, stall_timeout_sec=stall_sec)
+        discipline_enabled = (args.audio_discipline == "on")
+        clock = AudioClock(audio_dev, stall_timeout_sec=stall_sec, discipline=discipline_enabled)
     else:
         clock = MonotonicClock()
 
