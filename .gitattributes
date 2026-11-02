@@ -1,0 +1,4 @@
+*.bin -text
+*.wav binary
+*.mp4 binary
+
