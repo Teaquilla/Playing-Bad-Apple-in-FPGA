@@ -253,41 +253,59 @@ Terdapat tiga opsi arsitektur framing audio streaming:
   4. Jika checksum gagal dan `packet_parser` mengasertifkan `fifo_rollback <= '1'` (baris 315), `audio_fifo` seketika membatalkan paket cacat: `w_ptr_spec <= w_ptr_commit`. Data korup tidak akan pernah sampai ke modulator PWM.
   5. Sisi pembacaan audio (tick generator 8 kHz) hanya membaca hingga batas `w_ptr_commit`.
 - **Dampak terhadap Utilisasi Blok RAMB18E1:**
-  Kapasitas FIFO audio 1.024 byte diimplementasikan menggunakan **1 blok RAMB18E1** (konfigurasi True Dual-Port 1024×8). Seluruh register pointer spekulatif (`w_ptr_spec`, `w_ptr_commit`, `r_ptr`) serta komparator rollback dibangun menggunakan logika fabric FPGA (LUT dan Flip-Flop). Oleh karena itu, penambahan mekanisme commit/rollback pada audio FIFO **TIDAK** membutuhkan penambahan blok RAMB18E1 baru. Total kebutuhan memori BRAM audio tetap tepat 1 blok RAMB18E1 (0,5 BRAM Tile) [DIASUMSIKAN].
+  Kapasitas FIFO audio ditetapkan sebesar **2.048 Byte** ($2\text{ K} \times 8$) menggunakan **1 blok RAMB18E1** (0,5 BRAM Tile) [DIASUMSIKAN: konfigurasi True Dual-Port $2048 \times 8$]. Utilisasi ini identik dengan modul `rx_fifo` ($2\text{ K} \times 8$) yang terbukti memetakan ke tepat 1 blok RAMB18E1 pada hasil sintesis Vivado [DIVERIFIKASI: `vivado/build_m2b.log` baris 288, `u_fifo/mem_reg | 2 K x 8 | 1 RAMB18`]. Seluruh register pointer spekulatif (`w_ptr_spec`, `w_ptr_commit`, `r_ptr`) serta komparator rollback dibangun menggunakan logika fabric FPGA (LUT dan Flip-Flop), sehingga penambahan mekanisme commit/rollback pada audio FIFO **TIDAK** membutuhkan penambahan blok RAMB18E1 baru.
 
-#### B. Analisis Drift Jam Akumulatif & Koreksi Aritmetika (D-17)
+#### B. Analisis Drift Jam Akumulatif, Watermark 2.048 B, & Ketahanan Jeda (D-17)
+- **Parameter Kapasitas FIFO & Fase Pre-roll [DIASUMSIKAN]:**
+  - **Kapasitas FIFO Audio Hardware:** $2.048\text{ Byte}$ (1 blok RAMB18E1). Pada laju $8.000\text{ Byte/s}$, kapasitas total setara dengan durasi penyangga:
+    $$T_{\text{buf}} = \frac{2.048\text{ Byte}}{8.000\text{ Byte/s}} = 0,256\text{ detik} = \mathbf{256\text{ ms}} \quad (\approx 7,68\text{ frame video pada 30 FPS})$$
+  - **Fase Pengisian Awal (*Pre-roll Lead Time*):** $1.024\text{ Byte}$ ($50\%$ kapasitas FIFO, setara $\mathbf{128\text{ ms}}$ atau $\approx 3,84\text{ frame video}$). Output PWM dipertahankan hening (`0x80`) selama fase pengisian awal hingga $1.024\text{ Byte}$ terkumpul, kemudian tick generator 8 kHz mulai aktif.
+  - **Ambang Batas Watermark ($20\% / 80\%$):**
+    - Ambang batas bawah (*Low Watermark*, $20\%$): $2.048 \times 0,20 = 409,6 \approx \mathbf{410\text{ Byte}}$ ($51,25\text{ ms}$).
+    - Ambang batas atas (*High Watermark*, $80\%$): $2.048 \times 0,80 = 1.638,4 \approx \mathbf{1.638\text{ Byte}}$ ($204,75\text{ ms}$).
+    - Lebar jendela toleransi watermark ($80\% - 20\%$):
+      $$W_{\text{watermark}} = 1.638\text{ B} - 410\text{ B} = \mathbf{1.228\text{ Byte}} \quad (153,5\text{ ms})$$
+    - Margin dari titik kerja pre-roll ($1.024\text{ Byte}$):
+      - Margin ke High Watermark ($80\%$): $1.638 - 1.024 = \mathbf{614\text{ Byte}}$ ($76,75\text{ ms}$).
+      - Margin ke Low Watermark ($20\%$): $1.024 - 410 = \mathbf{614\text{ Byte}}$ ($76,75\text{ ms}$).
+      - Margin ke Underflow Absolut (0 Byte): $1.024 - 0 = \mathbf{1.024\text{ Byte}}$ ($128\text{ ms}$).
+      - Margin ke Overflow Absolut (2.048 Byte): $2.048 - 1.024 = \mathbf{1.024\text{ Byte}}$ ($128\text{ ms}$).
+
 - **Aritmetika Slip Sampel pada Laju Sampling 8 kHz [DIVERIFIKASI: perhitungan matematis]:**
   - Deviasi frekuensi $100\text{ ppm}$ ($100 \times 10^{-6}$):
-    $$\text{Laju Drift}_{100\text{ppm}} = 8.000\text{ sampel/s} \times 100 \times 10^{-6} = 0,80\text{ sampel/detik}$$
-    Satu sampel audio tergelincir (*slip*) setiap:
-    $$T_{\text{slip, 100ppm}} = \frac{1}{0,80\text{ sampel/s}} = 1,25\text{ detik}$$
+    $$\text{Laju Drift}_{100\text{ppm}} = 8.000\text{ sampel/s} \times 100 \times 10^{-6} = 0,80\text{ sampel/detik} \implies T_{\text{slip, 100ppm}} = \frac{1}{0,80} = 1,25\text{ detik}$$
   - Deviasi frekuensi $250\text{ ppm}$ ($250 \times 10^{-6}$):
-    $$\text{Laju Drift}_{250\text{ppm}} = 8.000\text{ sampel/s} \times 250 \times 10^{-6} = 2,00\text{ sampel/detik}$$
-    Satu sampel audio tergelincir (*slip*) setiap:
-    $$T_{\text{slip, 250ppm}} = \frac{1}{2,00\text{ sampel/s}} = 0,50\text{ detik}$$
+    $$\text{Laju Drift}_{250\text{ppm}} = 8.000\text{ sampel/s} \times 250 \times 10^{-6} = 2,00\text{ sampel/detik} \implies T_{\text{slip, 250ppm}} = \frac{1}{2,00} = 0,50\text{ detik}$$
   - Total akumulasi drift sepanjang pemutaran video penuh ($217,84\text{ detik}$):
     - Pada $100\text{ ppm}$: $217,84\text{ s} \times 0,80\text{ sampel/s} = 174,27 \approx \mathbf{174\text{ sampel}}$ (Byte).
     - Pada $250\text{ ppm}$: $217,84\text{ s} \times 2,00\text{ sampel/s} = 435,68 \approx \mathbf{436\text{ sampel}}$ (Byte).
 
-- **Hubungan Drift dengan Rentang Jendela Watermark 20% - 80% (Kapasitas FIFO 1.024 B):**
-  - Kapasitas total FIFO audio hardware = $1.024\text{ Byte}$ (128 ms buffer audio).
-  - Ambang batas atas (*High Watermark*, $80\%$): $1.024 \times 0,80 = 819,2 \approx \mathbf{819\text{ Byte}}$.
-  - Ambang batas bawah (*Low Watermark*, $20\%$): $1.024 \times 0,20 = 204,8 \approx \mathbf{205\text{ Byte}}$.
-  - Rentang jendela toleransi watermark ($80\% - 20\%$):
-    $$W_{\text{watermark}} = 819\text{ B} - 205\text{ B} = \mathbf{614\text{ Byte}}$$
-  - Titik kerja awal pasca pengisian awal (*pre-roll lead time* 512 Byte = $50\%$ kapasitas):
-    - Margin dari titik tengah ke High Watermark: $819 - 512 = \mathbf{307\text{ Byte}}$.
-    - Margin dari titik tengah ke Low Watermark: $512 - 205 = \mathbf{307\text{ Byte}}$.
-  - **Evaluasi Keamanan Buffer:**
-    1. Total rentang jendela watermark ($614\text{ B}$) terbukti lebih besar daripada akumulasi drift terburuk $250\text{ ppm}$ sepanjang lagu ($436\text{ B}$).
-    2. Pada deviasi $100\text{ ppm}$, total drift sepanjang 217,84 detik hanyalah $174\text{ Byte}$. Karena $174\text{ B} < 307\text{ B}$, isi buffer FIFO audio tidak akan pernah menyentuh ambang batas 20% maupun 80% dari awal hingga akhir lagu, bahkan jika kompensasi slip tidak aktif sekalipun!
-    3. Pada deviasi batas atas $250\text{ ppm}$, drift searah sebesar $436\text{ Byte}$ akan melampaui batas margin titik tengah ($307\text{ Byte}$) pada waktu:
-       $$T_{\text{reach\_wm}} = \frac{307\text{ Byte}}{2,00\text{ Byte/s}} \approx 153,5\text{ detik}$$
-       Saat pemutaran mencapai detik ke-153,5, buffer FIFO menyentuh watermark (80% atau 20%) dan secara otomatis mengaktifkan penyesuaian slip lokal di FPGA (drop 1 sampel atau insert 1 sampel setiap 0,5 detik). Mekanisme ini mengunci keterisian buffer tetap berada di sekitar batas watermark tersebut tanpa risiko overflow maupun underflow hingga lagu berakhir.
-- **Estimasi Realistis Selisih Frekuensi Kristal [DIASUMSIKAN]:**
-  Osilator kristal kuarsa komersial pada DAC motherboard PC dan FPGA Basys 3 umumnya memiliki spesifikasi akurasi $\pm 20\text{ s.d. } \pm 50\text{ ppm}$. Pada temperatur ruang stabil, selisih frekuensi nyata antar-kristal tipikalnya berada di kisaran $20\text{ s.d. } 70\text{ ppm}$ ($\le 100\text{ ppm}$). Angka 250 ppm merupakan batas atas teoritis terburuk (*worst-case bound*) untuk mengantisipasi penuaan osilator dan fluktuasi termal ekstrem.
-- **Fitur Pencacah Slip yang Dapat Dibaca (Readable Slip Counters):**
-  FPGA mengimplementasikan dua register pencacah: `cnt_audio_drop` (jumlah sampel yang dibuang saat watermark >80% aktif) dan `cnt_audio_repeat` (jumlah sampel yang disisipkan saat watermark <20% aktif). Nilai kedua pencacah ini dapat dibaca melalui telemetri status untuk keperluan verifikasi dan penelusuran kualitas audio di board fisik [DIASUMSIKAN].
+- **Evaluasi Ketahanan Buffer terhadap Drift Osilator & Jeda Pengiriman PC [DIVERIFIKASI: perhitungan matematis]:**
+  1. **Ketahanan terhadap Drift Osilator (sepanjang 217,84 detik):**
+     - Pada deviasi $100\text{ ppm}$, total akumulasi drift adalah $174\text{ Byte}$. Karena $174\text{ B} < 614\text{ B}$ (margin watermark), isi buffer **tidak pernah menyentuh watermark** dan terserap penuh tanpa underflow.
+     - Pada deviasi batas atas $250\text{ ppm}$, total drift sepanjang 217,84 detik adalah $436\text{ Byte}$. Karena $436\text{ B} < 614\text{ B}$, akumulasi drift terburuk $250\text{ ppm}$ sekalipun **TIDAK PERNAH MENYENTUH AMBANG WATERMARK** ($436\text{ B} < 614\text{ B}$)! Seluruh pemutaran lagu penuh terserap dengan margin keselamatan $\ge 178\text{ Byte}$ di dalam jendela watermark tanpa perlu memicu koreksi slip, dan terserap sepenuhnya tanpa underflow.
+  2. **Ketahanan terhadap Jeda Pengiriman PC (Host Transmission Hiccups / OS Jitter):**
+     - **Jeda Pengiriman $64\text{ ms}$ ($512\text{ Byte}$):**
+       Konsumsi sampel audio selama jeda = $64\text{ ms} \times 8\text{ B/ms} = 512\text{ Byte}$.
+       Sisa isi buffer FIFO = $1.024 - 512 = 512\text{ Byte} > 410\text{ Byte}$ (Low Watermark).
+       $\implies$ **TERSERAP PENUH TANPA UNDERFLOW** (bahkan buffer belum menyentuh watermark $20\%$).
+     - **Jeda Pengiriman $100\text{ ms}$ ($800\text{ Byte}$):**
+       Konsumsi sampel audio selama jeda = $100\text{ ms} \times 8\text{ B/ms} = 800\text{ Byte}$.
+       Sisa isi buffer FIFO = $1.024 - 800 = 224\text{ Byte} > 0\text{ Byte}$.
+       $\implies$ **TERSERAP PENUH TANPA UNDERFLOW** (buffer melewati Low Watermark 410 B sehingga mengaktifkan slip pengulangan sampel jika berlangsung lama, namun pemutaran tidak mengalami kekosongan buffer).
+     - **Jeda Pengiriman $200\text{ ms}$ ($1.600\text{ Byte}$):**
+       Kebutuhan sampel audio selama jeda = $200\text{ ms} \times 8\text{ B/ms} = 1.600\text{ Byte}$.
+       Karena buffer pre-roll hanya menyediakan $1.024\text{ Byte}$ ($128\text{ ms}$), seluruh isi buffer habis terpakai pada $128\text{ ms}$ pertama, menyisakan kekurangan $576\text{ Byte}$ ($72\text{ ms}$).
+       $\implies$ **TIDAK TERSERAP (TERJADI UNDERFLOW)**. Output PWM beralih ke level hening `0x80`, dan register `cnt_audio_underflow` bertambah.
+  3. **Estimasi Realistis Selisih Frekuensi Kristal [DIASUMSIKAN]:**
+     Osilator kristal kuarsa komersial pada DAC PC dan FPGA Basys 3 bertoleransi $\pm 20\text{ s.d. } \pm 50\text{ ppm}$. Pada suhu ruangan stabil, selisih nyata tipikalnya adalah $20\text{ s.d. } 70\text{ ppm}$ ($\le 100\text{ ppm}$). Angka 250 ppm merupakan batas atas teoretis terburuk.
+
+- **Pencacah Telemetri Hardware yang Dapat Dibaca (Readable Hardware Counters) [DIASUMSIKAN]:**
+  FPGA mengimplementasikan empat register pencacah status telemetri yang dapat dibaca host:
+  - `cnt_audio_underflow`: Pencacah kejadian buffer kosong saat sampel audio diminta oleh modulator PWM.
+  - `cnt_audio_overflow`: Pencacah kejadian paket audio tiba saat kapasitas FIFO ($2.048\text{ B}$) penuh.
+  - `cnt_audio_drop`: Pencacah jumlah sampel yang dibuang saat High Watermark (>80% / 1.638 B) aktif.
+  - `cnt_audio_repeat`: Pencacah jumlah sampel yang diulang saat Low Watermark (<20% / 410 B) aktif.
 
 ---
 
@@ -373,7 +391,7 @@ Status keputusan desain teknis Milestone 4 per tanggal 2026-11-02:
 | **D-14** | Protokol Framing Paket Audio Streaming | **(A)** SOF khusus `0x55AB` untuk paket audio terpisah.<br>**(B)** Multiplexing audio dan video dalam satu paket gabungan.<br>**(C)** Tipe paket di bit tertinggi `FRAME_ID(15)` dengan SOF `0x55 0xAA 0x5A` standar. | **Disetujui pengguna 2026-11-02** | **Opsi (C) Terpilih:** Bit 15 `FRAME_ID = 1` menandai paket audio; SOF tetap `0x55 0xAA 0x5A`. Pencacah `VALID_FRAMES` serta register `FIRST_FRAME_ID` dan `LAST_FRAME_ID` tetap HANYA menghitung paket video; pencacah paket audio dibuat terpisah. |
 | **D-15** | Arsitektur Port B Frame Buffer BRAM | **(A)** Arbitrase Time-Division Multiplexing (TDM) pada Port B tunggal.<br>**(B)** Duplikasi instance frame buffer BRAM (+1 RAMB18E1). | **Disetujui pengguna 2026-11-02** | **Opsi (B) Terpilih:** Duplikasi instance frame buffer BRAM untuk pembacaan OLED (+1 RAMB18E1). Jalur subsistem `ascii_sink` tetap utuh tanpa modifikasi apa pun. |
 | **D-16** | Parameter Komponen Filter Analog RC Audio PMOD | **(A)** $R = 1\text{ k}\Omega, C = 10\text{ nF}$ ($f_c \approx 15,9\text{ kHz}$, arus pin $\approx 3,3\text{ mA} < 12\text{ mA}$).<br>**(B)** Filter RC dua tingkat (*2nd-order passive*) untuk pelemahan carrier lebih tajam. | **TERBUKA** | Menunggu komponen fisik audio tiba untuk pengujian osiloskop dan uji dengar langsung di board Basys 3. |
-| **D-17** | Mekanisme Kompensasi Drift Buffer Audio FIFO | **(A)** Kontrol laju audio murni dari Host PC (mengatur interval pengiriman paket audio).<br>**(B)** Penyesuaian adaptif lokal di FPGA (drop/insert 1 sampel saat isi FIFO melewati ambang batas >80% atau <20%, dengan pre-roll lead time 512 B). | **Disetujui pengguna 2026-11-02** | **Opsi (B) Terpilih:** Penyesuaian adaptif lokal di FPGA dengan batas ambang watermark 20% / 80% dan fase pengisian awal (*pre-roll*) 512 Byte; pencacah slip (`cnt_audio_drop`, `cnt_audio_repeat`) dapat dibaca oleh telemetri. |
+| **D-17** | Mekanisme Kompensasi Drift Buffer Audio FIFO | **(A)** Kontrol laju audio murni dari Host PC (mengatur interval pengiriman paket audio).<br>**(B)** Penyesuaian adaptif lokal di FPGA (drop/insert 1 sampel saat isi FIFO melewati ambang batas >80% atau <20%, dengan pre-roll lead time 512 B). | **Disetujui pengguna 2026-11-02** | **Opsi (B) Terpilih:** Penyesuaian adaptif lokal di FPGA dengan FIFO 2.048 B (1 RAMB18), pre-roll 1.024 B (128 ms), watermark 20%/80% (410/1.638 B, kapasitas 256 ms); pencacah underflow, overflow, dan slip (`cnt_audio_drop`, `cnt_audio_repeat`) dapat dibaca oleh telemetri. |
 
 ---
 

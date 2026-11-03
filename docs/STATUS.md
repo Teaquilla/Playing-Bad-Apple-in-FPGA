@@ -127,13 +127,25 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context`):
 
 ---
 
-9. **Evaluasi Host API Audio PC & Karakteristik WASAPI (M3 Jalur A1):**
+9. **Evaluasi Host API Audio PC & Karakteristik Jam Audio (M3 Jalur A1):**
+   - **Kondisi Pengujian [DIVERIFIKASI]:** Seluruh pengukuran tolok ukur audio dijalankan menggunakan `FakeTransport` pada lingkungan laptop tanpa perangkat keras serial fisik riil dan tanpa beban rendering visual terminal.
+   - **Distingsi Metrik Jam Audio [DIVERIFIKASI]:**
+     - *Overshoot Jam Audio:* Keterlambatan bangun fungsi `sleep_until` terhadap target waktu pada domain jam audio fisik (`clock.now() - target_time`).
+     - *Penyimpangan Selang Kirim:* Deviasi selang waktu nyata antar-pengiriman frame pada domain waktu monotonik sistem (`mono_time[k] - mono_time[k-1] - 1/FPS`, interval frame ke-0 diabaikan).
    - **Dukungan WASAPI `auto_convert` [DIVERIFIKASI]:** Modul `SoundDeviceAudio` pada `python/audio_player.py` berhasil membuka dan memutar berkas WAV 44.100 Hz pada hardware DAC Realtek (frekuensi native 48.000 Hz) menggunakan `extra_settings=sounddevice.WasapiSettings(auto_convert=True)` tanpa galat PortAudio `-9997 Invalid sample rate`.
    - **Latensi Hardware Terendah [DIVERIFIKASI]:** Mode WASAPI melaporkan latensi hardware output terendah yaitu **9,25 ms** (dibandingkan DirectSound 46,44 ms dan MME 178,56 ms).
-   - **Karakteristik Kemiringan Drift ($\alpha$) & Disiplin Jam:**
-     - Estimasi kemiringan drift osilator pada jendela geser 2 detik menghasilkan nilai fluktuatif dengan ketidakpastian standar error ($\pm \sigma_{\text{ppm}}$) yang sangat besar (ratusan hingga ribuan ppm). Oleh karena itu, angka kemiringan drift pada jendela singkat **tidak bermakna secara fisik** dan tidak boleh dijadikan klaim stabilitas osilator jangka panjang [DIVERIFIKASI].
-     - Model disiplin jam regresi linear jendela geser (`--audio-discipline on`) berhasil menepis noise kedatangan buffer audio dan menekan overshoot jam audio ($p99$) ke sub-milidetik (+0,81 ms pada WASAPI) [DIVERIFIKASI].
-     - Hasil uji sinkronisasi audio-video subjektif pengguna pada laptop dengan parameter `--audio-hostapi wasapi --audio-discipline on` adalah: **belum diuji** [DIASUMSIKAN sampai ada hasil uji].
+   - **Hasil Perbandingan Performa Disiplin Jam per Host API (OFF vs ON) [DIVERIFIKASI]:**
+     - **Windows WASAPI (20s):**
+       - Overshoot Jam Audio P99: `+4,72 ms` (OFF) vs `+1,13 ms` (ON) [DIVERIFIKASI: stdout 4f].
+       - Penyimpangan Selang Kirim (Std / P99 |dev| / Maks |dev|) pada CSV terkini: `2,26 / 4,46 / 5,31 ms` (OFF) vs `0,45 / 1,04 / 4,52 ms` (ON); pada dataset awal `9b24dbc`: `2,33 / 4,67 / 5,40 ms` (OFF) vs `0,27 / 0,79 / 1,27 ms` (ON). Disiplin ON secara konsisten menekan variasi selang kirim.
+     - **MME (60s):**
+       - Overshoot Jam Audio P99: `+1,18 ms` (OFF) vs `+1,14 ms` (ON); Maks Overshoot terpangkas dari `+24,31 ms` ke `+10,41 ms` [DIVERIFIKASI: stdout 4f].
+       - Penyimpangan Selang Kirim pada CSV terkini: `0,89 / 1,07 / 23,82 ms` (OFF) vs `0,58 / 1,22 / 10,14 ms` (ON); pada dataset awal `9b24dbc`: `1,15 / 2,00 / 25,25 ms` (OFF) vs `0,44 / 1,57 / 7,56 ms` (ON). Disiplin ON efektif meredam lonjakan ekstrem.
+     - **Windows DirectSound (20s) - TIDAK DIREKOMENDASIKAN:**
+       - DirectSound mengalami **13 buffer underruns per 20 detik** di kedua mode (OFF dan ON) [DIVERIFIKASI: stdout 4f]. Underrun pada level driver audio memicu lonjakan penyimpangan selang kirim (Maks |dev| mencapai `33,33 ms` OFF dan `71,22 ms` ON pada CSV terkini; `66,72 ms` OFF dan `18,75 ms` ON pada `9b24dbc`). DirectSound tidak direkomendasikan untuk digunakan.
+   - **Konfigurasi A1 yang Direkomendasikan di Dokumen untuk Laptop Ini [DIVERIFIKASI: keputusan tim 2026-11-03]:**
+     `--audio-hostapi wasapi --audio-discipline on` (belum dinilai pengguna; default CLI TIDAK diubah) [DIASUMSIKAN].
+   - **Status Penilaian Pengguna:** Hasil uji sinkronisasi audio-video subjektif pengguna pada laptop dengan parameter `--audio-hostapi wasapi --audio-discipline on` adalah: **belum diuji** [DIASUMSIKAN sampai ada hasil uji].
 
 ---
 

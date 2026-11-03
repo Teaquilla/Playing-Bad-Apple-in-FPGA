@@ -197,13 +197,24 @@ Untuk menguji performa jam audio (`AudioClock`), stabilitas penjadwalan frame vi
 - `--fps FPS`: Laju frame video simulasi acuan (default: `30.0`).
 - `--csv PATH`: Path penyimpanan berkas rekaman per-frame CSV (opsional).
 
-### Metrik yang Dilaporkan:
-- **Reported Latency (ms):** Estimasi latensi perangkat keras output audio yang dilaporkan oleh driver audio/DAC.
-- **Initial Offset (ms):** Waktu tunggu dari pemanggilan `start()` hingga tibanya callback audio pertama.
-- **Audio Clock Step (min/med/max ms):** Interval waktu antar pembaruan callback audio fisik.
-- **Overshoot Jam Audio (mean/p99/max ms):** Kelebihan waktu (*overshoot*) pada domain jam audio itu sendiri (`clock.now() - target_time`) setelah fungsi `sleep_until` selesai menunggu target waktu frame ($k/\text{FPS}$).
-- **Penyimpangan Selang Kirim Monotonik (std/p99/max ms):** Variasi interval waktu kirim nyata antar frame pada jam monotonik sistem (`mono_time[k] - mono_time[k-1] - 1/FPS`) untuk $k \ge 3$.
-- **Residual Garis Lurus Monotonik (std/max ms):** Deviasi waktu kirim monotonik terhadap garis lurus regresi terbaik `mono_time[k] ~ a + k/FPS` untuk $k \ge 3$.
-- **Drift Slope ($\text{ppm} \pm \sigma_{\text{ppm}}$):** Estimasi penyimpangan frekuensi clock audio fisik terhadap jam monotonik sistem dalam satuan ppm (*parts-per-million*) beserta nilai ketidakpastian standar error ($\pm \sigma_{\text{ppm}}$).
+### Metrik yang Dilaporkan & Distingsi Konseptual:
+- **Kondisi Pengujian [DIVERIFIKASI]:** Seluruh pengukuran tolok ukur audio dijalankan menggunakan `FakeTransport` pada laptop tanpa port serial fisik dan tanpa beban rendering visual terminal.
+- **Distingsi Metrik Jam Audio vs Waktu Monotonik [DIVERIFIKASI]:**
+  - **Overshoot Jam Audio (mean/p99/max ms):** Kelebihan waktu (*overshoot*) pada domain jam audio fisik itu sendiri (`clock.now() - target_time`) setelah fungsi `sleep_until` selesai menunggu target waktu frame ($k/\text{FPS}$).
+  - **Penyimpangan Selang Kirim (std/p99/max ms):** Variasi deviasi interval pengiriman nyata antar-frame pada domain jam monotonik sistem (`mono_time[k] - mono_time[k-1] - 1/FPS`, interval frame ke-0 diabaikan).
+- **Reported Latency (ms):** Estimasi latensi perangkat keras output audio yang dilaporkan oleh driver audio/DAC (WASAPI 9,25 ms; DirectSound 46,44 ms; MME 178,56 ms).
 - **Callback Flags:** Indikator *underflow* atau *overflow* buffer audio dari driver.
+- **Catatan Estimasi Drift Slope:** Angka kemiringan osilator pada jendela geser 2 detik sangat fluktuatif (ratusan hingga ribuan ppm) dan **tidak bermakna secara fisik** untuk mencerminkan stabilitas osilator kristal jangka panjang, sehingga diabaikan dari evaluasi utama.
+
+### Hasil Karakterisasi & Konfigurasi Rekomendasi:
+- **Windows WASAPI (20s):**
+  - Overshoot Jam Audio P99: `+4,72 ms` (OFF) vs `+1,13 ms` (ON) [DIVERIFIKASI: stdout 4f].
+  - Penyimpangan Selang Kirim (Std / P99 |dev| / Maks |dev|) pada CSV terkini: `2,26 / 4,46 / 5,31 ms` (OFF) vs `0,45 / 1,04 / 4,52 ms` (ON); pada dataset awal `9b24dbc`: `2,33 / 4,67 / 5,40 ms` (OFF) vs `0,27 / 0,79 / 1,27 ms` (ON). Disiplin ON secara konsisten menekan variasi selang kirim.
+- **MME (60s):**
+  - Overshoot Jam Audio P99: `+1,18 ms` (OFF) vs `+1,14 ms` (ON); Maks Overshoot terpangkas dari `+24,31 ms` ke `+10,41 ms` [DIVERIFIKASI: stdout 4f].
+  - Penyimpangan Selang Kirim pada CSV terkini: `0,89 / 1,07 / 23,82 ms` (OFF) vs `0,58 / 1,22 / 10,14 ms` (ON); pada dataset awal `9b24dbc`: `1,15 / 2,00 / 25,25 ms` (OFF) vs `0,44 / 1,57 / 7,56 ms` (ON).
+- **Windows DirectSound (20s) - TIDAK DIREKOMENDASIKAN:**
+  - DirectSound mengalami **13 buffer underruns per 20 detik** di kedua mode (OFF dan ON) [DIVERIFIKASI: stdout 4f]. Underrun ini memicu lonjakan deviasi selang kirim (Maks |dev| mencapai `33,33 ms` OFF dan `71,22 ms` ON pada CSV terkini; `66,72 ms` OFF dan `18,75 ms` ON pada `9b24dbc`). DirectSound tidak direkomendasikan.
+- **Konfigurasi A1 yang Direkomendasikan di Dokumen untuk Laptop Ini [DIVERIFIKASI: keputusan tim 2026-11-03]:**
+  `--audio-hostapi wasapi --audio-discipline on` (belum dinilai pengguna; default CLI TIDAK diubah) [DIASUMSIKAN].
 
