@@ -252,6 +252,11 @@ Terdapat tiga opsi arsitektur framing audio streaming:
   3. Jika verifikasi checksum lolos dan [packet_parser.vhd](../hdl/packet_parser.vhd#L305-L306) mengasertifkan `packet_valid <= '1'` dan `fifo_commit <= '1'`, maka `audio_fifo` mengomit data: `w_ptr_commit <= w_ptr_spec`. Data baru ini resmi dapat dibaca oleh pembaca audio.
   4. Jika checksum gagal dan `packet_parser` mengasertifkan `fifo_rollback <= '1'` (baris 315), `audio_fifo` seketika membatalkan paket cacat: `w_ptr_spec <= w_ptr_commit`. Data korup tidak akan pernah sampai ke modulator PWM.
   5. Sisi pembacaan audio (tick generator 8 kHz) hanya membaca hingga batas `w_ptr_commit`.
+  6. **Proteksi Overflow per Paket (Per-Packet Overflow) [DIASUMSIKAN]:**
+     Saat awal penerimaan paket audio (SOF terdeteksi dan bit 15 `FRAME_ID = 1`), `packet_parser` membaca panjang muatan `PAYLOAD_LEN` (266 s.d. 267 Byte). Pada saat itu juga, logika pengendali `audio_fifo` mengevaluasi sisa kapasitas kosong BRAM:
+     $$\text{Free Space} = 2.048 - (\text{w\_ptr\_commit} - \text{r\_ptr}) \pmod{2.048}$$
+     Jika $\text{Free Space} < \text{PAYLOAD\_LEN}$, penulisan seluruh paket audio tersebut langsung dibatalkan (rollback otomatis), byte muatan yang masuk diabaikan tanpa ditulis ke memori BRAM, register telemetri `cnt_audio_overflow` dinaikkan (+1), dan pointer tulis spekulatif dikunci pada `w_ptr_spec <= w_ptr_commit`.
+     *Dampak ke Arsitektur Commit/Rollback:* Mekanisme proteksi overflow berbasis per-paket ini menjamin sifat atomik (*all-or-nothing*) transaksi paket: sebuah paket audio hanya akan ditulis ke memori FIFO jika seluruh byte muatannya dijamin muat tanpa memicu pemotongan muatan (*partial write*) atau korupsi penimpaan pointer (*overrun*).
 - **Dampak terhadap Utilisasi Blok RAMB18E1:**
   Kapasitas FIFO audio ditetapkan sebesar **2.048 Byte** ($2\text{ K} \times 8$) menggunakan **1 blok RAMB18E1** (0,5 BRAM Tile) [DIASUMSIKAN: konfigurasi True Dual-Port $2048 \times 8$]. Utilisasi ini identik dengan modul `rx_fifo` ($2\text{ K} \times 8$) yang terbukti memetakan ke tepat 1 blok RAMB18E1 pada hasil sintesis Vivado [DIVERIFIKASI: `vivado/build_m2b.log` baris 288, `u_fifo/mem_reg | 2 K x 8 | 1 RAMB18`]. Seluruh register pointer spekulatif (`w_ptr_spec`, `w_ptr_commit`, `r_ptr`) serta komparator rollback dibangun menggunakan logika fabric FPGA (LUT dan Flip-Flop), sehingga penambahan mekanisme commit/rollback pada audio FIFO **TIDAK** membutuhkan penambahan blok RAMB18E1 baru.
 
@@ -280,19 +285,47 @@ Terdapat tiga opsi arsitektur framing audio streaming:
     - Pada $100\text{ ppm}$: $217,84\text{ s} \times 0,80\text{ sampel/s} = 174,27 \approx \mathbf{174\text{ sampel}}$ (Byte).
     - Pada $250\text{ ppm}$: $217,84\text{ s} \times 2,00\text{ sampel/s} = 435,68 \approx \mathbf{436\text{ sampel}}$ (Byte).
 
+- **Parameter Kontrol Slip (Interval Minimum & Histeresis) serta Kapasitas Koreksi vs Drift 250 ppm (D-17) [DIVERIFIKASI: perhitungan matematis]:**
+  - **Selang Minimum Antar-Slip ($T_{\text{slip\_min}}$):**
+    Ditetapkan batas jeda minimum antar-koreksi slip sebesar $T_{\text{slip\_min}} = 10\text{ ms s.d. } 50\text{ ms}$ (setara 80 s.d. 400 sampel audio pada 8 kHz). Pembatasan ini mencegah terjadinya pengulangan atau pembuangan sampel yang terlalu rapat yang dapat menimbulkan distorsi frekuensi (*pitch shift*) atau artefak flutter yang terdengar oleh telinga manusia.
+  - **Batas Ambang Histeresis Watermark:**
+    Untuk menghindari osilasi bolak-balik (*hunting/jitter*) pada batas watermark:
+    - *Low Watermark Hysteresis:* Mode pengulangan sampel aktif saat isi buffer turun di bawah $410\text{ Byte}$ ($20\%$). Koreksi slip hanya dinonaktifkan setelah isi buffer naik kembali melampaui ambang histeresis atas $\ge 512\text{ Byte}$ ($25\%$ kapasitas, margin histeresis $+102\text{ Byte}$).
+    - *High Watermark Hysteresis:* Mode pembuangan sampel aktif saat isi buffer naik melampaui $1.638\text{ Byte}$ ($80\%$). Koreksi slip hanya dinonaktifkan setelah isi buffer turun kembali melampaui ambang histeresis bawah $\le 1.536\text{ Byte}$ ($75\%$ kapasitas, margin histeresis $-102\text{ Byte}$).
+  - **Perhitungan Kapasitas Koreksi vs Drift Kristal 250 ppm:**
+    Pada deviasi kristal maksimum $250\text{ ppm}$ ($250 \times 10^{-6}$), laju akumulasi drift adalah $2,00\text{ sampel/detik}$.
+    - Pada interval slip konservatif $T_{\text{slip\_min}} = 50\text{ ms}$ ($20\text{ koreksi/detik}$), kapasitas koreksi maksimum adalah $20\text{ sampel/s}$, yaitu **$10\times$ lebih besar** daripada laju drift 250 ppm.
+    - Pada interval slip agresif $T_{\text{slip\_min}} = 10\text{ ms}$ ($100\text{ koreksi/detik}$), kapasitas koreksi maksimum adalah $100\text{ sampel/s}$, yaitu **$50\times$ lebih besar** daripada laju drift 250 ppm.
+    - *Contoh Numerik:* Pada selisih drift terburuk $250\text{ ppm}$ (FPGA kekurangan $2\text{ sampel/detik}$ akibat clock audio PC lebih lambat), jika buffer audio berada di bawah Low Watermark, algoritma slip dengan interval $50\text{ ms}$ hanya perlu aktif melakukan koreksi repeat sebanyak **2 kali per detik** (rata-rata 1 koreksi setiap 500 ms atau setiap 4.000 sampel). Koreksi $2\text{ sampel/s}$ terhadap laju $8.000\text{ sampel/s}$ merepresentasikan perubahan durasi waktu hanya $0,025\%$, yang jauh di bawah ambang batas deteksi perbedaan nada pendengaran manusia (*Just Noticeable Difference* $\approx 0,5\%$).
+
 - **Evaluasi Ketahanan Buffer terhadap Drift Osilator & Jeda Pengiriman PC [DIVERIFIKASI: perhitungan matematis]:**
   1. **Ketahanan terhadap Drift Osilator (sepanjang 217,84 detik):**
      - Pada deviasi $100\text{ ppm}$, total akumulasi drift adalah $174\text{ Byte}$. Karena $174\text{ B} < 614\text{ B}$ (margin watermark), isi buffer **tidak pernah menyentuh watermark** dan terserap penuh tanpa underflow.
      - Pada deviasi batas atas $250\text{ ppm}$, total drift sepanjang 217,84 detik adalah $436\text{ Byte}$. Karena $436\text{ B} < 614\text{ B}$, akumulasi drift terburuk $250\text{ ppm}$ sekalipun **TIDAK PERNAH MENYENTUH AMBANG WATERMARK** ($436\text{ B} < 614\text{ B}$)! Seluruh pemutaran lagu penuh terserap dengan margin keselamatan $\ge 178\text{ Byte}$ di dalam jendela watermark tanpa perlu memicu koreksi slip, dan terserap sepenuhnya tanpa underflow.
   2. **Ketahanan terhadap Jeda Pengiriman PC (Host Transmission Hiccups / OS Jitter):**
+     - **Kebijakan Transmisi Host PC: Paket Audio TIDAK Boleh Dibuang (No Host Audio Drop) [DIASUMSIKAN]:**
+       Berbeda dengan frame video di mana paket yang terlambat $> 2\text{ frame}$ ($> 66,7\text{ ms}$) dibuang (*dropped*) oleh host untuk menjaga waktu dinding video, paket audio **TIDAK PERNAH DI-DROP OLEH HOST PC**. Membuang paket audio akan menciptakan lubang hening (*gap*) atau letupan akustik yang merusak integritas pendengaran. Jika terjadi keterlambatan pengiriman pada host PC, seluruh paket audio tertunda wajib dikirim secepatnya (*catch-up burst*) pada baud rate UART penuh untuk mengisi ulang FIFO hardware ke level nominal target ($1.024\text{ B}$).
+       *Dampak ke Arsitektur `stream_player`:* Penjadwalan transmisi paket audio harus didekopel (*decoupled*) dari penjadwalan frame video. Transmisi video terikat pada interval waktu dinding $33,33\text{ ms}$ per frame, sedangkan pengiriman audio dijalankan sebagai antrean aliran data kontinu yang independen; paket audio yang tertunda akibat fluktuasi OS segera dikirim berturut-turut tanpa menunggu slot frame berikutnya.
      - **Jeda Pengiriman $64\text{ ms}$ ($512\text{ Byte}$):**
        Konsumsi sampel audio selama jeda = $64\text{ ms} \times 8\text{ B/ms} = 512\text{ Byte}$.
        Sisa isi buffer FIFO = $1.024 - 512 = 512\text{ Byte} > 410\text{ Byte}$ (Low Watermark).
        $\implies$ **TERSERAP PENUH TANPA UNDERFLOW** (bahkan buffer belum menyentuh watermark $20\%$).
-     - **Jeda Pengiriman $100\text{ ms}$ ($800\text{ Byte}$):**
+     - **Jeda Pengiriman $100\text{ ms}$ ($800\text{ Byte}$), Sisa Isi FIFO, & Analisis Pemulihan (Burst vs Slip) [DIVERIFIKASI: perhitungan matematis]:**
        Konsumsi sampel audio selama jeda = $100\text{ ms} \times 8\text{ B/ms} = 800\text{ Byte}$.
-       Sisa isi buffer FIFO = $1.024 - 800 = 224\text{ Byte} > 0\text{ Byte}$.
-       $\implies$ **TERSERAP PENUH TANPA UNDERFLOW** (buffer melewati Low Watermark 410 B sehingga mengaktifkan slip pengulangan sampel jika berlangsung lama, namun pemutaran tidak mengalami kekosongan buffer).
+       Sisa isi buffer FIFO = $1.024 - 800 = \mathbf{224\text{ Byte}} > 0\text{ Byte}$ (berada di bawah Low Watermark $410\text{ Byte}$).
+       Jika setelah jeda berakhir host PC hanya mengirim audio sesuai laju konsumsi nominal ($8.000\text{ B/s}$ atau $\approx 266,7\text{ B/frame}$), maka laju masuk = laju keluar (netto 0 B/s), sehingga **isi FIFO akan tetap tertahan di level rendah $224\text{ Byte}$ (< 410 B)** dan tidak dapat pulih ke titik tengah nominal $1.024\text{ Byte}$ dengan sendirinya!
+       *Analisis Metode Pemulihan Level FIFO:*
+       1. **Metode Catch-up Burst dari PC (Rekomendasi Utama):** PC segera mengirimkan $800\text{ Byte}$ audio tertunda secara beruntun (*burst*) pada 921.600 baud. Waktu transmisi $800\text{ Byte}$ pada 921.600 baud (laju fisik $92.160\text{ B/s}$) adalah $\approx 8,68\text{ ms}$. Selama burst 8,68 ms tersebut konsumsi audio FPGA hanya $8,68 \times 8 = 69\text{ Byte}$, sehingga level FIFO pulih kembali ke $224 + 800 - 69 = \mathbf{955\text{ Byte}}$ dalam waktu kurang dari $9\text{ ms}$.
+       2. **Metode Slip Pengulangan Sampel Lokal FPGA (Repeat Sample):** Jika PC tidak melakukan burst dan hanya mengandalkan koreksi slip lokal FPGA:
+          - Defisit sampel untuk keluar dari Low Watermark ($410\text{ B}$): $410 - 224 = \mathbf{186\text{ sampel}}$.
+          - Defisit sampel untuk pulih penuh ke level nominal ($1.024\text{ B}$): $1.024 - 224 = \mathbf{800\text{ sampel}}$.
+          - Waktu pemulihan pada $T_{\text{slip\_min}} = 10\text{ ms}$ (laju koreksi $100\text{ sampel/s}$):
+            - Waktu keluar Low Watermark: $186 / 100 = \mathbf{1,86\text{ detik}}$.
+            - Waktu pulih ke level nominal: $800 / 100 = \mathbf{8,00\text{ detik}}$.
+          - Waktu pemulihan pada $T_{\text{slip\_min}} = 50\text{ ms}$ (laju koreksi $20\text{ sampel/s}$):
+            - Waktu keluar Low Watermark: $186 / 20 = \mathbf{9,30\text{ detik}}$.
+            - Waktu pulih ke level nominal: $800 / 20 = \mathbf{40,00\text{ detik}}$.
+          *Kesimpulan:* Pemulihan murni melalui mekanisme slip lokal memerlukan waktu beberapa detik hingga puluhan detik di mana buffer berada dalam kondisi sangat rentan terhadap underflow jika terjadi gangguan transmisi kedua. Oleh karena itu, *catch-up burst* dari PC merupakan syarat wajib untuk pemulihan cepat, sedangkan slip lokal hanya berfungsi mengoreksi drift frekuensi kristal kontinu.
      - **Jeda Pengiriman $200\text{ ms}$ ($1.600\text{ Byte}$):**
        Kebutuhan sampel audio selama jeda = $200\text{ ms} \times 8\text{ B/ms} = 1.600\text{ Byte}$.
        Karena buffer pre-roll hanya menyediakan $1.024\text{ Byte}$ ($128\text{ ms}$), seluruh isi buffer habis terpakai pada $128\text{ ms}$ pertama, menyisakan kekurangan $576\text{ Byte}$ ($72\text{ ms}$).
