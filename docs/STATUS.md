@@ -138,18 +138,28 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context`):
      - **Windows WASAPI (20s, 3 Run):**
        - Disiplin OFF: Std deviasi selang kirim median `2,49 ms` (min `2,46 ms`, maks `2,49 ms`); P99 |dev| median `4,88 ms` (min `4,60 ms`, maks `5,14 ms`); Maks |dev| median `6,04 ms` (min `5,43 ms`, maks `6,04 ms`); 0 frame dengan |dev| > 16,7 ms; 0 buffer underflow.
        - Disiplin ON: Std deviasi selang kirim median `0,36 ms` (min `0,36 ms`, maks `0,41 ms`); P99 |dev| median `0,98 ms` (min `0,86 ms`, maks `1,01 ms`); Maks |dev| median `3,29 ms` (min `2,46 ms`, maks `4,70 ms`); 0 frame dengan |dev| > 16,7 ms; 0 buffer underflow.
-       - Disiplin ON secara konsisten menekan deviasi selang kirim ke tingkat sub-milidetik (P99 |dev| < 1,01 ms) dan stabil antar-run.
+       - Disiplin ON secara konsisten menekan deviasi selang kirim ke tingkat sub-milidetik (P99 |dev| < 1,01 ms) dan stabil antar-run. Dalam hal jitter selang kirim, performa WASAPI ON (std 0,36 ms; P99 0,98 ms) setara dengan MME ON (std 0,31 ms; P99 1,12 ms).
      - **Windows MME (20s, 3 Run):**
        - Disiplin OFF: Std deviasi selang kirim median `0,34 ms` (min `0,32 ms`, maks `0,38 ms`); P99 |dev| median `1,02 ms` (min `0,92 ms`, maks `1,79 ms`); Maks |dev| median `1,94 ms` (min `1,88 ms`, maks `2,52 ms`); 0 frame dengan |dev| > 16,7 ms; 0 buffer underflow.
        - Disiplin ON: Std deviasi selang kirim median `0,31 ms` (min `0,31 ms`, maks `0,38 ms`); P99 |dev| median `1,12 ms` (min `0,87 ms`, maks `1,33 ms`); Maks |dev| median `1,92 ms` (min `1,42 ms`, maks `1,98 ms`); 0 frame dengan |dev| > 16,7 ms; 0 buffer underflow.
-       - MME memiliki stabilitas selang kirim yang baik namun latensi hardware yang sangat tinggi (~177-178 ms).
-     - **Windows DirectSound (20s, 3 Run) - TIDAK DIREKOMENDASIKAN (UNDERRUNS & VOLATILE):**
+       - Pada pengujian 3 x 20 s, disiplin tidak berpengaruh nyata terhadap selang kirim (std 0,34 -> 0,31 ms). Lonjakan 23,8 ms pada pengujian terdahulu hanya terjadi pada satu run 60 s dan tidak terulang pada 3 run 20 s. MME memiliki latensi hardware yang sangat tinggi (~177-178 ms).
+     - **Windows DirectSound (20s, 3 Run) - TIDAK DIREKOMENDASIKAN (VOLATILE):**
        - DirectSound menunjukkan timing yang sangat volatil dan tidak stabil:
          - Disiplin OFF: Std deviasi selang kirim median `9,50 ms` (min `9,37 ms`, maks `9,74 ms`); P99 |dev| median `26,82 ms` (min `26,17 ms`, maks `27,13 ms`); Maks |dev| median `31,66 ms` (min `28,74 ms`, maks `35,65 ms`); sebanyak `67 s.d. 82 frame` (median 77 frame) per 20 detik mengalami deviasi selang kirim > 16,7 ms (> 0,5 frame video)!
          - Disiplin ON: Std deviasi selang kirim median `2,35 ms` (min `2,34 ms`, maks `2,54 ms`); P99 |dev| median `4,86 ms` (min `4,85 ms`, maks `6,00 ms`); Maks |dev| melonjak hingga `42,02 s.d. 43,86 ms` (median `43,25 ms`) dengan 1 s.d. 3 frame per run mengalami deviasi > 16,7 ms.
-         - Pada pengujian awal tercatat 13 buffer underruns per 20 detik. DirectSound TIDAK DIREKOMENDASIKAN untuk pemutaran streaming.
-   - **Konfigurasi A1 yang Direkomendasikan di Dokumen untuk Laptop Ini [DIVERIFIKASI: keputusan tim 2026-11-03]:**
-     `--audio-hostapi wasapi --audio-discipline on` (rekomendasi terbukti optimal pada benchmark, default CLI tetap off).
+         - Status Buffer Underrun: Pada pengujian batch 4f tercatat 13 buffer underruns per 20 detik, namun pada keenam run batch 4h seluruhnya melaporkan 0 underflow (`underflow=0`). Label UNDERRUNS dihapus karena 0 underrun terbukti pada pengujian 4h.
+         - Rentang hasil tiga batch pengujian:
+           - Mode ON: std `1,62 ms` (batch 4e) / `5,35 ms` (batch 4f) / `2,34 s.d. 2,54 ms` (batch 4h).
+           - Mode OFF: std `9,45 ms` (batch 4e) / `8,66 ms` (batch 4f) / `9,37 s.d. 9,74 ms` (batch 4h).
+         - Penyebab volatilitas timing DirectSound: **TIDAK DIKETAHUI**.
+   - **Karakteristik Langkah Pembaruan Jam Audio per Host API [DIVERIFIKASI: analisis CSV 4h]:**
+     Pengukuran selisih penunjuk audio (`frames_played`) antar-baris berturutan pada CSV tolok ukur 4h:
+     - **WASAPI:** Langkah pembaruan per-baris tidak pernah 0 ms (0% zero-diff dari 1.797 baris). Penunjuk waktu maju mulus setiap frame: min `20,00 ms`, median `30,00 ms`, maks `40,00 s.d. 50,00 ms`.
+     - **MME:** Langkah pembaruan per-baris tidak pernah 0 ms (0% zero-diff dari 1.797 baris). Penunjuk waktu maju teratur dalam kelipatan buffer: min `25,76 ms`, median `25,76 ms`, maks `154,56 s.d. 180,32 ms`.
+     - **DirectSound:** Sebanyak `45,5% s.d. 47,4%` selisih baris bernilai tepat `0,00 ms` (penunjuk waktu membeku selama satu siklus frame), lalu melompat pada pembaruan berikutnya dengan langkah non-nol median `60,00 ms` (maks `80,00 s.d. 130,00 ms`).
+     - Hubungan Granularitas terhadap Volatilitas: [DIASUMSIKAN] bahwa granularitas pembaruan jam DirectSound yang kasar (~46% frame tertahan 0 ms lalu melompat 60 ms) berkaitan erat dengan tingginya fluktuasi selang kirim dan volatilitas timing DirectSound.
+   - **Konfigurasi A1 yang Direkomendasikan di Dokumen untuk Laptop Ini [DIVERIFIKASI: keputusan tim 2026-11-03 & Bagian 4h]:**
+     `--audio-hostapi wasapi --audio-discipline on` (alasan rekomendasi: latensi terendah 9,25 ms dan penilaian pengguna "sudah sinkron"; dalam jitter selang kirim WASAPI ON setara MME ON; default CLI tetap off).
    - **Status Penilaian Pengguna [DIVERIFIKASI: keputusan tim Bagian 4h]:** penilaian pengguna, mata dan telinga: sinkron. Kondisi: laptop, --fake-fpga, --audio-hostapi wasapi --audio-discipline on, tanpa board/OLED/UART.
 
 ---

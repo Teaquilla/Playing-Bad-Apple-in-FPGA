@@ -207,14 +207,15 @@ Untuk menguji performa jam audio (`AudioClock`), stabilitas penjadwalan frame vi
 - **Catatan Estimasi Drift Slope:** Angka kemiringan osilator pada jendela geser 2 detik sangat fluktuatif (ratusan hingga ribuan ppm) dan **tidak bermakna secara fisik** untuk mencerminkan stabilitas osilator kristal jangka panjang, sehingga diabaikan dari evaluasi utama.
 
 ### Hasil Karakterisasi & Konfigurasi Rekomendasi:
-- **Windows WASAPI (20s):**
-  - Overshoot Jam Audio P99: `+4,72 ms` (OFF) vs `+1,13 ms` (ON) [DIVERIFIKASI: stdout 4f].
-  - Penyimpangan Selang Kirim (Std / P99 |dev| / Maks |dev|) pada CSV terkini: `2,26 / 4,46 / 5,31 ms` (OFF) vs `0,45 / 1,04 / 4,52 ms` (ON); pada dataset awal `9b24dbc`: `2,33 / 4,67 / 5,40 ms` (OFF) vs `0,27 / 0,79 / 1,27 ms` (ON). Disiplin ON secara konsisten menekan variasi selang kirim.
-- **MME (60s):**
-  - Overshoot Jam Audio P99: `+1,18 ms` (OFF) vs `+1,14 ms` (ON); Maks Overshoot terpangkas dari `+24,31 ms` ke `+10,41 ms` [DIVERIFIKASI: stdout 4f].
-  - Penyimpangan Selang Kirim pada CSV terkini: `0,89 / 1,07 / 23,82 ms` (OFF) vs `0,58 / 1,22 / 10,14 ms` (ON); pada dataset awal `9b24dbc`: `1,15 / 2,00 / 25,25 ms` (OFF) vs `0,44 / 1,57 / 7,56 ms` (ON).
-- **Windows DirectSound (20s) - TIDAK DIREKOMENDASIKAN:**
-  - DirectSound mengalami **13 buffer underruns per 20 detik** di kedua mode (OFF dan ON) [DIVERIFIKASI: stdout 4f]. Underrun ini memicu lonjakan deviasi selang kirim (Maks |dev| mencapai `33,33 ms` OFF dan `71,22 ms` ON pada CSV terkini; `66,72 ms` OFF dan `18,75 ms` ON pada `9b24dbc`). DirectSound tidak direkomendasikan.
-- **Konfigurasi A1 yang Direkomendasikan di Dokumen untuk Laptop Ini [DIVERIFIKASI: keputusan tim 2026-11-03]:**
-  `--audio-hostapi wasapi --audio-discipline on` (belum dinilai pengguna; default CLI TIDAK diubah) [DIASUMSIKAN].
+- **Windows WASAPI (20s, 3 Run):**
+  - Overshoot Jam Audio P99: `+5,14 ms` (OFF) vs `+1,01 ms` (ON).
+  - Penyimpangan Selang Kirim (Std / P99 |dev| / Maks |dev|) pada pengujian 4h: `2,49 / 4,88 / 6,04 ms` (OFF) vs `0,36 / 0,98 / 3,29 ms` (ON). Disiplin ON secara konsisten menekan variasi selang kirim ke sub-milidetik, setara dengan performa MME ON (std 0,31 ms; P99 1,12 ms).
+- **MME (20s, 3 Run):**
+  - Penyimpangan Selang Kirim pada pengujian 4h: `0,34 / 1,02 / 1,94 ms` (OFF) vs `0,31 / 1,12 / 1,92 ms` (ON). Disiplin tidak berpengaruh nyata pada interval 20 s (std 0,34 -> 0,31 ms), dan lonjakan 23,8 ms sebelumnya hanya terjadi pada satu run 60 s dan tidak terulang pada 3 run 20 s. MME memiliki latensi hardware sangat tinggi (~177-178 ms).
+- **Windows DirectSound (20s, 3 Run) - TIDAK DIREKOMENDASIKAN (VOLATILE):**
+  - DirectSound menunjukkan timing yang sangat volatil. Pada 3 run 4h, underrun tercatat 0 (`underflow=0`), namun penyimpangan selang kirim pada mode OFF sangat besar (median std `9,50 ms`, 77 frame > 16,7 ms). Pada mode ON, lonjakan sesaat maks |dev| mencapai `42,02 s.d. 43,86 ms`.
+  - Rentang tiga batch: Mode ON std `1,62 ms` (4e) / `5,35 ms` (4f) / `2,34-2,54 ms` (4h); Mode OFF std `9,45 ms` (4e) / `8,66 ms` (4f) / `9,37-9,74 ms` (4h). Penyebab volatilitas: **TIDAK DIKETAHUI**.
+  - Granularitas pembaruan audio DirectSound kasar: ~46% frame memiliki selisih `frames_played = 0 ms`, lalu melompat dengan median 60 ms. [DIASUMSIKAN] bahwa granularitas kasar ini berkaitan erat dengan volatilitas DirectSound.
+- **Konfigurasi A1 yang Direkomendasikan di Dokumen untuk Laptop Ini [DIVERIFIKASI: keputusan tim 2026-11-03 & Bagian 4h]:**
+  `--audio-hostapi wasapi --audio-discipline on` (alasan rekomendasi: latensi terendah 9,25 ms dan penilaian pengguna "sudah sinkron"; dalam hal jitter selang kirim setara MME ON; default CLI tetap off).
 
