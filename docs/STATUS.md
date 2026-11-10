@@ -142,7 +142,7 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context`):
      - **Windows MME (20s, 3 Run):**
        - Disiplin OFF: Std deviasi selang kirim median `0,34 ms` (min `0,32 ms`, maks `0,38 ms`); P99 |dev| median `1,02 ms` (min `0,92 ms`, maks `1,79 ms`); Maks |dev| median `1,94 ms` (min `1,88 ms`, maks `2,52 ms`); 0 frame dengan |dev| > 16,7 ms; 0 buffer underflow.
        - Disiplin ON: Std deviasi selang kirim median `0,31 ms` (min `0,31 ms`, maks `0,38 ms`); P99 |dev| median `1,12 ms` (min `0,87 ms`, maks `1,33 ms`); Maks |dev| median `1,92 ms` (min `1,42 ms`, maks `1,98 ms`); 0 frame dengan |dev| > 16,7 ms; 0 buffer underflow.
-       - Pada pengujian 3 x 20 s, disiplin tidak berpengaruh nyata terhadap selang kirim (std 0,34 -> 0,31 ms). Lonjakan 23,8 ms pada pengujian terdahulu hanya terjadi pada satu run 60 s dan tidak terulang pada 3 run 20 s. MME memiliki latensi hardware yang sangat tinggi (~177-178 ms).
+       - Pada pengujian 3 x 20 s, disiplin tidak berpengaruh nyata terhadap selang kirim (std 0,34 -> 0,31 ms). Lonjakan 23,8 ms pada pengujian terdahulu hanya terjadi pada satu run 60 s dan tidak terulang pada 3 run 20 s (pengujian 4h tidak mengulang run 60 s, melainkan hanya menguji run 20 s). MME memiliki latensi hardware yang sangat tinggi (~177-178 ms).
      - **Windows DirectSound (20s, 3 Run) - TIDAK DIREKOMENDASIKAN (VOLATILE):**
        - DirectSound menunjukkan timing yang sangat volatil dan tidak stabil:
          - Disiplin OFF: Std deviasi selang kirim median `9,50 ms` (min `9,37 ms`, maks `9,74 ms`); P99 |dev| median `26,82 ms` (min `26,17 ms`, maks `27,13 ms`); Maks |dev| median `31,66 ms` (min `28,74 ms`, maks `35,65 ms`); sebanyak `67 s.d. 82 frame` (median 77 frame) per 20 detik mengalami deviasi selang kirim > 16,7 ms (> 0,5 frame video)!
@@ -150,7 +150,7 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context`):
          - Status Buffer Underrun: Pada pengujian batch 4f tercatat 13 buffer underruns per 20 detik, namun pada keenam run batch 4h seluruhnya melaporkan 0 underflow (`underflow=0`). Label UNDERRUNS dihapus karena 0 underrun terbukti pada pengujian 4h.
          - Rentang hasil tiga batch pengujian:
            - Mode ON: std `1,62 ms` (batch 4e) / `5,35 ms` (batch 4f) / `2,34 s.d. 2,54 ms` (batch 4h).
-           - Mode OFF: std `9,45 ms` (batch 4e) / `8,66 ms` (batch 4f) / `9,37 s.d. 9,74 ms` (batch 4h).
+           - Mode OFF: std `8,74 ms` (batch 4e, P99 `22,27 ms`, maks `66,72 ms`) / `8,66 ms` (batch 4f) / `9,37 s.d. 9,74 ms` (batch 4h).
          - Penyebab volatilitas timing DirectSound: **TIDAK DIKETAHUI**.
    - **Karakteristik Langkah Pembaruan Jam Audio per Host API [DIVERIFIKASI: analisis CSV 4h]:**
      Pengukuran selisih penunjuk audio (`frames_played`) antar-baris berturutan pada CSV tolok ukur 4h:

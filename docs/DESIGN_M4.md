@@ -183,26 +183,66 @@ Urutan inisialisasi dan penulisan frame pada pustaka umum komunitas (misalnya Ad
   $$\text{DIVIDER}_{\text{audio}} = \frac{100.000.000\text{ Hz}}{8.000\text{ Hz}} = 12.500\text{ siklus clock}$$
   Sebuah pencacah 14-bit menghasilkan pulsa stroba 1 siklus setiap 12.500 siklus untuk memajukan sampel berikutnya dari FIFO audio ke modulator PWM [DIASUMSIKAN].
 
-### 3.2 Modulator PWM 8-Bit & Analisis Jitter Latch Sampel
-- **Frekuensi Pembawa PWM (Carrier Frequency):**
-  Resolusi 8-bit membutuhkan pencacah periode 256 tingkatan:
+### 3.2 Modulator PWM 8-Bit & Evaluasi Dua Varian Arsitektur (Varian A vs Varian B)
+
+Terdapat dua pendekatan arsitektur untuk modulator PWM audio 8-bit 8 kHz pada clock sistem 100 MHz [DIASUMSIKAN]:
+
+#### A. Varian A: Latch Sampel Saat Pencacah Carrier 256 Siklus Wrap-Around (~390,625 kHz) [DIASUMSIKAN]
+- **Karakteristik Carrier:**
+  Pencacah carrier bebas 8-bit mencacah $0..255$ ($256\text{ siklus clock} = 2,56\ \mu\text{s}$). Frekuensi carrier:
   $$f_{\text{carrier}} = \frac{100.000.000\text{ Hz}}{256} = 390.625\text{ Hz} \approx 390,625\text{ kHz}$$
-- **Karakteristik Hubungan Frekuensi Tick 8 kHz dan Carrier PWM:**
-  Interval sampel 8 kHz adalah tepat $12.500\text{ siklus clock}$ pada 100 MHz. Nilai 12.500 **BUKAN** merupakan kelipatan bulat dari periode carrier 256 siklus:
+- **Karakteristik Latch & Jitter Waktu Penundaan:**
+  Interval sampel 8 kHz adalah tepat $12.500\text{ siklus clock}$ ($125\ \mu\text{s}$). Nilai 12.500 **bukan** kelipatan bulat dari 256 siklus:
   $$\frac{12.500}{256} = 48,828125\text{ periode carrier}$$
-  Untuk mencegah terpotongnya periode carrier PWM di tengah siklus (yang akan memicu distorsi frekuensi tinggi dan pulsa kerdil / runt pulse), sampel audio baru dari FIFO **hanya di-latch saat pencacah carrier wrap-around** (`carrier_cnt = 255 \rightarrow 0`) setelah pulsa `sample_req` dibangkitkan.
-- **Perhitungan Jitter Maksimum & Efeknya [DIASUMSIKAN]:**
-  - Jitter waktu penundaan latch sampel baru bervariasi antara $0\text{ s.d. } 255\text{ siklus clock}$ (0 hingga 2,55 µs). Jitter maksimum adalah:
-    $$J_{\text{max}} = 256\text{ siklus} \times 10\text{ ns} = \mathbf{2,56\ \mu\text{s}}$$
-  - Efek Jitter terhadap Kualitas Audio:
-    Periode sampel 8 kHz adalah $T_{\text{sample}} = 125\ \mu\text{s}$. Variasi $2,56\ \mu\text{s}$ merepresentasikan deviasi fase waktu sebesar:
-    $$\frac{2,56\ \mu\text{s}}{125\ \mu\text{s}} \times 100\% \approx 2,05\%$$
-    Modulasi jitter fasa 2,05% ini terdistribusi pada frekuensi ketukan (*beat frequency*) antara clock carrier 390,625 kHz dan laju tick 8 kHz. Komponen harmonik frekuensi tinggi yang dihasilkan berada jauh di luar spektrum pendengaran manusia ($> 20\text{ kHz}$) dan seluruhnya diredam oleh filter analog low-pass RC PMOD ($f_c \approx 15,9\text{ kHz}$), sehingga tidak menghasilkan artefak audio yang dapat didengar [DIASUMSIKAN].
-- **Karakteristik Akustik:**
-  Frekuensi carrier 390,6 kHz berada jauh melampaui batas pendengaran manusia ($20\text{ kHz}$) dan batas Nyquist audio 8 kHz ($4\text{ kHz}$). Rasio oversampling terhadap audio adalah $390,625 / 8 = 48,8\times$ [DIASUMSIKAN].
-- **Prinsip Modulasi:**
-  Pencacah bebas 8-bit `pwm_cnt` mencacah $0..255$.
-  Jika $\text{sample\_data} > \text{pwm\_cnt}$, pin output `audio_pwm` bernilai HIGH (`1`); jika tidak, bernilai LOW (`0`).
+  Untuk mencegah terpotongnya periode PWM di tengah siklus, sampel audio baru dari FIFO hanya di-latch saat pencacah carrier berputar (*wrap-around* dari 255 ke 0). Hal ini memperkenalkan jitter waktu penundaan sampel sebesar $0\text{ s.d. } 256\text{ siklus clock}$ ($0\text{ s.d. } 2,56\ \mu\text{s}$), dengan jitter puncak $t_j = 2,56\ \mu\text{s}$.
+- **Koreksi Terhadap Klaim Redaman Filter RC:**
+  Klaim sebelumnya bahwa "jitter waktu penundaan PWM sepenuhnya diredam oleh filter analog low-pass RC" adalah **KELIRU**. Pembaruan sampel pada laju 8 kHz yang termodulasi oleh jitter $2,56\ \mu\text{s}$ membangkitkan derau fasa/apertur di dalam pita audio yang terdengar (*in-band noise*). Karena filter low-pass RC pasif satu tingkat yang diusulkan memiliki frekuensi cut-off $f_c \approx 3,29\text{ kHz}$ ($R = 2,2\text{ k}\Omega, C = 22\text{ nF}$), derau yang berada di dalam pita dengar ($< 3,3\text{ kHz}$) **TIDAK DAPAT** disaring oleh filter analog tersebut dan akan lolos ke transduser audio.
+- **Perhitungan Kuantitatif SNR Akibat Jitter Sampling (Varian A):**
+  Jika jitter waktu dimodelkan berdistribusi seragam $U(0, t_j)$, standar deviasi waktu jitter (RMS jitter) adalah:
+  $$\sigma_t = \frac{t_j}{\sqrt{12}} = \frac{2,56\ \mu\text{s}}{\sqrt{12}} \approx 0,7390\ \mu\text{s}$$
+  Untuk sinyal nada sinusoidal skala penuh (*full-scale*) pada frekuensi $f_{\text{in}}$, rasio signal-to-noise teoretis akibat jitter dihitung dengan rumus:
+  $$\text{SNR}_{\text{jitter}} = -20 \log_{10}(2\pi f_{\text{in}} \sigma_t)$$
+  Contoh perhitungan pada beberapa frekuensi uji audio yang relevan:
+  - Pada $f_{\text{in}} = 1\text{ kHz}$:
+    $$\text{SNR}_{\text{jitter}} = -20 \log_{10}(2\pi \times 1.000 \times 0,7390 \times 10^{-6}) = -20 \log_{10}(4,643 \times 10^{-3}) \approx \mathbf{46,66\text{ dB}}$$
+  - Pada $f_{\text{in}} = 2\text{ kHz}$:
+    $$\text{SNR}_{\text{jitter}} = -20 \log_{10}(2\pi \times 2.000 \times 0,7390 \times 10^{-6}) = -20 \log_{10}(9,287 \times 10^{-3}) \approx \mathbf{40,64\text{ dB}}$$
+  - Pada $f_{\text{in}} = 3\text{ kHz}$:
+    $$\text{SNR}_{\text{jitter}} = -20 \log_{10}(2\pi \times 3.000 \times 0,7390 \times 10^{-6}) = -20 \log_{10}(1,393 \times 10^{-2}) \approx \mathbf{37,12\text{ dB}}$$
+  *Perbandingan dengan Kuantisasi 8-Bit:*
+  Derau kuantisasi ideal PCM 8-bit adalah $\text{SNR}_{\text{quant}} \approx 6,02 \times 8 + 1,76 \approx \mathbf{49,92\text{ dB}} \approx 50\text{ dB}$.
+  Pada frekuensi 1–3 kHz, $\text{SNR}_{\text{jitter}}$ ($37,1\text{ s.d. } 46,7\text{ dB}$) berada di bawah kualitas kuantisasi 8-bit ($50\text{ dB}$). Dengan demikian, pada Varian A derau jitter latch menjadi faktor pembatas kualitas (*dominant noise floor*) pada frekuensi menengah dan tinggi.
+
+#### B. Varian B: Carrier 250 Siklus (400 kHz), Tick 12.500 = Tepat 50 Periode Carrier [DIASUMSIKAN]
+- **Karakteristik Carrier & Sinkronisasi Sempurna:**
+  Pencacah carrier mencacah modulo 250 ($0..249$, periode $2,50\ \mu\text{s}$). Frekuensi pembawa PWM:
+  $$f_{\text{carrier}} = \frac{100.000.000\text{ Hz}}{250} = \mathbf{400.000\text{ Hz}} = \mathbf{400\text{ kHz}}$$
+  Interval tick sampel 8 kHz adalah tepat $12.500\text{ siklus clock}$. Hubungan frekuensi:
+  $$\frac{12.500\text{ siklus}}{250\text{ siklus}} = \mathbf{50\text{ periode carrier penuh}}$$
+  Karena interval 8 kHz merupakan kelipatan bilangan bulat eksak dari periode carrier 250 siklus, tick sampel selalu bertepatan persis pada batas awal siklus carrier. Sampel baru dapat langsung di-latch tanpa penundaan sehingga **jitter waktu latch adalah nol ($\Delta t = 0$, $\text{SNR}_{\text{jitter}} \rightarrow \infty$)**.
+- **Pemetaan Ambang Duty Cycle (Skala 0..250):**
+  Sampel audio 8-bit ($0..255$) dipetakan ke ambang pembanding duty cycle ($0..250$) menggunakan operasi aritmetika:
+  $$\text{duty\_threshold} = (\text{sample} \times 250) \gg 8 = \lfloor \frac{\text{sample} \times 250}{256} \rfloor$$
+  Di hardware FPGA, perhitungan ini membutuhkan pengali $8\text{ bit} \times 8\text{ bit}$ konstanta 250 diikuti pemotongan 8 bit terbawah.
+- **Analisis Gain Error & Duty Cycle Maksimum:**
+  - *Gain Error:* Faktor pengali efektif adalah $\frac{250}{256} \approx 0,9765625 \approx \mathbf{0,9766}$. Hal ini menimbulkan penurunan gain linier sebesar $-0,206\text{ dB}$ (atenuasi $\approx 2,34\%$). Atenuasi $0,2\text{ dB}$ berada jauh di bawah ambang pendengaran manusia (*inaudible*) dan dapat dikompensasi secara sepele pada gain penguat eksternal jika diinginkan.
+  - *Titik Hening:* Untuk sampel hening nominal `128` (`0x80`), ambang duty $= \lfloor 128 \times 250 / 256 \rfloor = 125$, menghasilkan duty cycle tepat $125 / 250 = \mathbf{50,0\%}$.
+  - *Duty Maksimum:* Untuk sampel puncak maksimum `255` (`0xFF`), ambang duty $= \lfloor 255 \times 250 / 256 \rfloor = \lfloor 249,023 \rfloor = \mathbf{249}$. Duty cycle maksimum adalah $\frac{249}{250} = \mathbf{99,6\%}$.
+- **Status Evaluasi:** Kedua varian di atas ditandai sebagai **[DIASUMSIKAN]**, dievaluasi secara objektif, dan **TIDAK ADA OPSI YANG DIPILIH SECARA SEPIHAK** pada tahap ini (menunggu pengisian keputusan tim).
+
+#### C. Usulan Filter Pasif Low-Pass RC Analog PMOD JB [DIASUMSIKAN]
+Untuk mengubah deret pulsa PWM 400 kHz (atau 390,6 kHz) menjadi sinyal audio analog yang dapat didengar:
+- **Nilai Komponen yang Diusulkan:**
+  $$R = 2,2\text{ k}\Omega, \quad C = 22\text{ nF}$$
+- **Frekuensi Cut-off (-3 dB):**
+  $$f_c = \frac{1}{2\pi R C} = \frac{1}{2\pi \times 2.200\ \Omega \times 22 \times 10^{-9}\text{ F}} \approx \mathbf{3.288,5\text{ Hz}} \approx \mathbf{3,29\text{ kHz}}$$
+  Frekuensi $3,29\text{ kHz}$ membatasi spektrum audio mendekati batas Nyquist audio 8 kHz ($4\text{ kHz}$), sekaligus memberikan atenuasi carrier PWM ($400\text{ kHz}$) sebesar:
+  $$\text{Atenuasi Carrier} \approx -20 \log_{10}\left(\frac{400\text{ kHz}}{3,29\text{ kHz}}\right) \approx \mathbf{-41,7\text{ dB}}$$
+- **Arus Beban Pin PMOD FPGA:**
+  Pada tegangan logika LVCMOS33 ($3,3\text{ V}$), arus beban maksimum pin PMOD Artix-7 adalah:
+  $$I_{\text{pin\_max}} = \frac{3,3\text{ V}}{2.200\ \Omega} \approx \mathbf{1,5\text{ mA}} \ll 8\text{ mA}$$
+  Nilai 1,5 mA berada jauh di bawah batas kemampuan drive standar pin Artix-7 ($8\text{ mA}$), menjamin keselamatan kelistrikan pin PMOD Basys 3.
+- **Peringatan Verifikasi Perangkat Keras:** Nilai komponen $R = 2,2\text{ k}\Omega$ dan $C = 22\text{ nF}$ ini adalah **usulan desain [DIASUMSIKAN]**, **bukan nilai final**, dan **wajib diverifikasi oleh pengguna manusia sebelum rangkaian fisik dihubungkan ke board Basys 3**.
 
 ### 3.3 Protokol Framing Streaming UART untuk Video & Audio
 
@@ -329,8 +369,19 @@ Terdapat tiga opsi arsitektur framing audio streaming:
     - Pada interval slip konservatif $T_{\text{slip\_min}} = 50\text{ ms}$ ($20\text{ koreksi/detik}$), kapasitas koreksi maksimum adalah $20\text{ sampel/s}$, yaitu **$10\times$ lebih besar** daripada laju drift 250 ppm.
     - Pada interval slip agresif $T_{\text{slip\_min}} = 10\text{ ms}$ ($100\text{ koreksi/detik}$), kapasitas koreksi maksimum adalah $100\text{ sampel/s}$, yaitu **$50\times$ lebih besar** daripada laju drift 250 ppm.
     - *Contoh Numerik:* Pada selisih drift terburuk $250\text{ ppm}$ (FPGA kekurangan $2\text{ sampel/detik}$ akibat clock audio PC lebih lambat), jika buffer audio berada di bawah Low Watermark, algoritma slip dengan interval $50\text{ ms}$ hanya perlu aktif melakukan koreksi repeat sebanyak **2 kali per detik** (rata-rata 1 koreksi setiap 500 ms atau setiap 4.000 sampel). Koreksi $2\text{ sampel/s}$ terhadap laju $8.000\text{ sampel/s}$ secara ekuivalen setara dengan pergeseran frekuensi $0,025\%$, yang berada di bawah ambang deteksi modulasi nada kontinu (*Just Noticeable Difference* $\approx 0,5\%$). Namun, karena slip pada FPGA dilakukan secara diskret (mengulang atau membuang 1 sampel secara mendadak), slip diskret ini menghasilkan diskontinuitas fasa sesaat (*transient micro-glitch*).
-    - *Kriteria Penerimaan Pendengaran [DIASUMSIKAN]:*
-      Kelayakan akustik slip diskret dinilai berdasarkan laju kemunculan kejadian per satuan waktu: target penerimaan ditetapkan $\le 2\text{ s.d. } 5\text{ kejadian slip per menit}$ pada kondisi pemutaran normal, sehingga efek glitch mikroskopis tersamar oleh dinamika musik Bad Apple!!.
+    - *Kriteria Penerimaan Pendengaran & Pemulihan Buffer per Kejadian [DIASUMSIKAN]:*
+      Pada kondisi pemutaran normal kontinu tanpa jeda transmisi host, dengan deviasi kristal maksimum $\le 250\text{ ppm}$, total akumulasi drift sepanjang 217,84 detik pemutaran adalah $436\text{ Byte}$. Karena margin dari titik kerja pre-roll ($1.024\text{ B}$) ke ambang watermark ($410\text{ B}$ atau $1.638\text{ B}$) adalah $614\text{ Byte}$, dan $436\text{ B} < 614\text{ B}$, isi buffer **sama sekali tidak pernah menyentuh ambang watermark**. Dengan demikian, pada operasi normal kontinu berlaku:
+      $$\text{Jumlah Kejadian Slip Pemutaran Normal} = \mathbf{0\text{ slip (NOL)}}$$
+      Oleh karena itu, target batas laju per-menit ("$\le 2\text{ s.d. } 5\text{ slip/menit}$") tidak relevan untuk pemutaran normal. Kejadian slip **hanya dapat terjadi jika dipicu oleh jeda/stall transmisi host PC**.
+      Sebagai gantinya, kriteria penerimaan ditetapkan berdasarkan **kriteria pemulihan per-kejadian (*per-incident recovery criteria*)**:
+      - *Jeda Transmisi Singkat ($\le 64\text{ ms}$ / defisit $\le 512\text{ B}$):* Isi buffer tetap berada di atas Low Watermark ($\ge 512\text{ B} > 410\text{ B}$). Ditargetkan **0 slip**, buffer terserap penuh tanpa gangguan akustik.
+      - *Jeda Transmisi Sedang ($64\text{ s.d. } 128\text{ ms}$ / contoh stall $100\text{ ms}$):*
+        - Jika PC melakukan *catch-up burst* pada 921.600 baud: buffer pulih ke level aman dalam waktu $< 10\text{ ms}$ ($\approx 8,7\text{ ms}$) dengan **0 slip diskret**.
+        - Jika PC tidak melakukan burst dan hanya mengandalkan slip lokal FPGA: diperlukan **186 slip** untuk keluar dari ambang batas kritis Low Watermark ($410\text{ B}$), dan **800 slip** untuk pulih penuh ke level nominal ($1.024\text{ B}$).
+        - Target Waktu Pemulihan per Kejadian:
+          - Pada $T_{\text{slip\_min}} = 50\text{ ms}$ ($20\text{ slip/detik}$): waktu keluar dari zona bahaya Low Watermark $\le \mathbf{9,3\text{ detik}}$, waktu pulih penuh $\le \mathbf{40\text{ detik}}$.
+          - Pada $T_{\text{slip\_min}} = 10\text{ ms}$ ($100\text{ slip/detik}$): waktu keluar dari zona bahaya Low Watermark $\le \mathbf{1,86\text{ detik}}$, waktu pulih penuh $\le \mathbf{8,0\text{ detik}}$.
+        - Kriteria Akustik: Efek transien slip diskret (pengulangan sampel sesaat) hanya boleh berlangsung terbatas selama jendela pemulihan per-kejadian tersebut, dan sistem tidak boleh mengalami underflow susulan (*secondary underflow*).
 
 - **Evaluasi Ketahanan Buffer terhadap Drift Osilator & Jeda Pengiriman PC [DIVERIFIKASI: perhitungan matematis]:**
   1. **Ketahanan terhadap Drift Osilator (sepanjang 217,84 detik):**
@@ -464,7 +515,7 @@ Sebelum pengujian di board fisik Basys 3 dilakukan, seluruh fungsionalitas modul
 
 ---
 
-## 6. Daftar Keputusan Desain (Decisions D-14..D-17)
+## 6. Daftar Keputusan Desain (Decisions D-14..D-18)
 
 Status keputusan desain teknis Milestone 4 per tanggal 2026-11-02:
 
@@ -472,9 +523,39 @@ Status keputusan desain teknis Milestone 4 per tanggal 2026-11-02:
 |---|---|---|---|---|
 | **D-14** | Protokol Framing Paket Audio Streaming | **(A)** SOF khusus `0x55AB` untuk paket audio terpisah.<br>**(B)** Multiplexing audio dan video dalam satu paket gabungan.<br>**(C)** Tipe paket di bit tertinggi `FRAME_ID(15)` dengan SOF `0x55 0xAA 0x5A` standar. | **Disetujui pengguna 2026-11-02** | **Opsi (C) Terpilih:** Bit 15 `FRAME_ID = 1` menandai paket audio; SOF tetap `0x55 0xAA 0x5A`. Pencacah `VALID_FRAMES` serta register `FIRST_FRAME_ID` dan `LAST_FRAME_ID` tetap HANYA menghitung paket video; pencacah paket audio dibuat terpisah. |
 | **D-15** | Arsitektur Port B Frame Buffer BRAM | **(A)** Arbitrase Time-Division Multiplexing (TDM) pada Port B tunggal.<br>**(B)** Duplikasi instance frame buffer BRAM (+1 RAMB18E1). | **Disetujui pengguna 2026-11-02** | **Opsi (B) Terpilih:** Duplikasi instance frame buffer BRAM untuk pembacaan OLED (+1 RAMB18E1). Jalur subsistem `ascii_sink` tetap utuh tanpa modifikasi apa pun. |
-| **D-16** | Parameter Komponen Filter Analog RC Audio PMOD | **(A)** $R = 1\text{ k}\Omega, C = 10\text{ nF}$ ($f_c \approx 15,9\text{ kHz}$, arus pin $\approx 3,3\text{ mA} < 12\text{ mA}$).<br>**(B)** Filter RC dua tingkat (*2nd-order passive*) untuk pelemahan carrier lebih tajam. | **TERBUKA** | Menunggu komponen fisik audio tiba untuk pengujian osiloskop dan uji dengar langsung di board Basys 3. |
+| **D-16** | Parameter Komponen Filter Analog RC Audio PMOD | **(A)** Usulan filter RC satu tingkat: $R = 2,2\text{ k}\Omega, C = 22\text{ nF}$ ($f_c \approx 3,29\text{ kHz}$, arus pin $3,3\text{ V} / 2,2\text{ k}\Omega \approx 1,5\text{ mA} \ll 8\text{ mA}$).<br>**(B)** Filter RC dua tingkat (*2nd-order passive*) untuk pelemahan carrier lebih tajam. | **TERBUKA** | Menunggu komponen fisik audio tiba untuk pengujian osiloskop dan uji dengar langsung di board Basys 3. Usulan $R = 2,2\text{ k}\Omega, C = 22\text{ nF}$ berstatus usulan desain [DIASUMSIKAN], bukan final, dan wajib diverifikasi pengguna manusia sebelum koneksi fisik. |
 | **D-17** | Mekanisme Kompensasi Drift Buffer Audio FIFO | **(A)** Kontrol laju audio murni dari Host PC (mengatur interval pengiriman paket audio).<br>**(B)** Penyesuaian adaptif lokal di FPGA (drop/insert 1 sampel saat isi FIFO melewati ambang batas >80% atau <20%, dengan pre-roll lead time 512 B). | **Disetujui pengguna 2026-11-02** | **Opsi (B) Terpilih:** Penyesuaian adaptif lokal di FPGA dengan FIFO 2.048 B (1 RAMB18), pre-roll 1.024 B (128 ms), watermark 20%/80% (410/1.638 B, kapasitas 256 ms); pencacah underflow, overflow, dan slip (`cnt_audio_drop`, `cnt_audio_repeat`) dapat dibaca oleh telemetri. |
 | **D-18** | Resinkronisasi Audio-Video Pasca-Buffer Underflow | **(A)** Indeks paket audio pada `FRAME_ID(14:0)`, FPGA membuang (*skip*) sampel basi.<br>**(B)** Reset pointer FIFO lokal (`flush`) dan host PC mengirim ulang dari posisi video saat ini.<br>**(C)** Tanpa pemulihan aktif (hanya mengandalkan slip lambat). | **TERBUKA** | Ditulis sebagai keputusan **TERBUKA**; tidak ada opsi yang dipilih. Masalah teknis: underflow selama $T$ (misal $100\text{ ms}$) membuat audio tertinggal permanen sebesar $T$ terhadap video jika seluruh paket audio dikirim tanpa drop; slip lokal 20 sampel/s memerlukan waktu $40\text{ detik}$ untuk mengejar lag 100 ms. |
 
 ---
 
+## 7. Referensi Teknis yang Wajib Diverifikasi Pengguna Manusia
+
+Dokumen desain konseptual ini mengacu pada sejumlah spesifikasi perangkat keras eksternal. Karena verifikasi saat ini dilakukan secara simulasi dan analisis offline tanpa board fisik, pengguna manusia **WAJIB** membuka dan memverifikasi dokumen-dokumen rujukan resmi berikut sebelum merakit perangkat keras fisik atau menerapkan modul RTL:
+
+1. **Datasheet Chip Controller Solomon Systech SSD1306:**
+   - **Sumber Acuan:** Halaman produk resmi Solomon Systech (*SSD1306 Advance Information / Product Specification*).
+   - **Tindakan Wajib Pengguna:** Pengguna wajib mengunduh atau membuka lembar data resmi ini dari halaman vendor/pabrikan, mencatat nomor revisi datasheet yang digunakan, dan memverifikasi:
+     - Urutan byte perintah register konfigurasi pada tabel inisialisasi FSM (khususnya perintah `0x8D 0x14` charge pump setting, mode pengalamatan memori `0x20 0x00`, konfigurasi pin COM `0xDA 0x12`, dan level VCOMH `0xDB`).
+     - Batas waktu siklus minimum clock antarmuka serial SPI ($t_{\text{cycle}}$) untuk memastikan clock $6,25\text{ MHz}$ ($T_{\text{SCLK}} = 160\text{ ns}$) memenuhi batas minimum datasheet.
+     - Durasi pulsa minimum sinyal reset hardware ($t_{\text{RES}}$) dan jeda stabilisasi pasca-reset sebelum transaksi SPI pertama dikirim.
+
+2. **Halaman Vendor / Dokumentasi Teknis Modul Display OLED 0,96" SPI 7-Pin:**
+   - **Sumber Acuan:** Halaman produk / dokumentasi teknis vendor penjual modul display OLED fisik yang dimiliki pengguna.
+   - **Tindakan Wajib Pengguna:** Pengguna wajib memeriksa:
+     - Urutan pin fisik header 7-pin (`GND`, `VCC`, `D0/SCLK`, `D1/MOSI`, `RES`, `DC`, `CS`).
+     - Keberadaan rangkaian regulator tegangan onboard dan komponen pasif (memastikan pin VCC dan logika I/O bekerja pada tingkat 3,3V PMOD Basys 3 tanpa beban berlebih).
+     - Kebutuhan konfigurasi charge pump internal (memastikan apakah modul 7-pin yang ditenagai catu 3,3V membutuhkan pengaktifan charge pump 7,5V `0x8D 0x14`).
+
+3. **Digilent Basys 3 FPGA Board Reference Manual:**
+   - **Sumber Acuan:** Manual referensi resmi Digilent Basys 3 (Tabel 6: *PMOD Pinout*).
+   - **Tindakan Wajib Pengguna:** Pengguna wajib memeriksa:
+     - Penomoran pin fisik konektor PMOD JA dan JB (baris atas pin 1..6 vs baris bawah pin 7..12).
+     - Pemetaan pin PMOD terhadap pin package Artix-7 `xc7a35tcpg236-1` (JA: `J1`, `L2`, `J2`, `G2`, `H1`, `K2`, `H2`, `G3`; JB: `A14`, `A16`, `B15`, `B16`, `A15`, `A17`, `C15`, `C16`).
+     - Kemampuan pasokan arus catu 3,3V pada header PMOD dan batas arus keluaran maksimum per pin I/O FPGA.
+
+4. **Master XDC Digilent Basys 3 (`Basys-3-Master.xdc`):**
+   - **Sumber Acuan:** Repositori GitHub resmi Digilent (`digilent-xdc/Basys-3-Master.xdc`).
+   - **Tindakan Wajib Pengguna:** Pengguna wajib memeriksa:
+     - Penamaan label pin sinyal dan penetapan `PACKAGE_PIN` untuk header PMOD JA dan JB pada berkas template batasan master asli pabrikan.
+     - Atribut standar I/O (`IOSTANDARD LVCMOS33`) sebelum dimasukkan ke dalam berkas batasan aktif proyek `constraints/basys3.xdc`.
