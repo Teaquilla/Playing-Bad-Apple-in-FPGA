@@ -19,16 +19,31 @@ Dokumen ini merupakan proposal desain arsitektur untuk **Milestone 4 (M4)**, men
   5. `RES` (Hardware Reset, aktif LOW)
   6. `DC` (Data / Command Selection: `0` = Command, `1` = Display Data)
   7. `CS` (Chip Select, aktif LOW)
-- **Protokol SPI:** SPI 4-kabel Mode 0 (CPOL = 0, CPHA = 0). Clock `SCLK` berstatus IDLE pada logika LOW, dan data dicuplik pada tepi naik (*rising edge*) `SCLK` [DIASUMSIKAN: spesifikasi datasheet SSD1306].
+- **Protokol SPI:** Datasheet SSD1306 Rev 1.1 (Halaman 17, Table 8-3 dan Halaman 52, Figure 13-3) hanya menyebutkan bahwa data serial pada pin `SDIN` dicuplik pada tepi naik (*rising edge*) `SCLK` dan bit paling signifikan (MSB) dikirim lebih dulu. Pengaturan mode 0 (CPOL=0, CPHA=0) konsisten tetapi diuji di board [DIASUMSIKAN]. Clock `SCLK` berstatus IDLE pada logika LOW, dan data dicuplik pada tepi naik (*rising edge*) `SCLK`.
 
-### 1.2 Pembagi Frekuensi Clock SPI (`SCLK`) & Waktu Transfer
-- **Batas Maksimum Frekuensi SSD1306:**
-  Menurut spesifikasi SSD1306 (periksa datasheet untuk rujukan waktu antarmuka serial), waktu siklus clock minimum $t_{\text{cycle}} = 100\text{ ns}$, yang setara dengan frekuensi clock serial maksimum $10\text{ MHz}$ [DIASUMSIKAN].
-- **Pembagian Frekuensi dari Clock Sistem 100 MHz Basys 3:**
-  Clock utama board Basys 3 beroperasi pada frekuensi $100\text{ MHz}$ (periode $10\text{ ns}$) [DIVERIFIKASI: `constraints/basys3.xdc` baris 8].
-  Untuk menghasilkan clock yang stabil dengan pembagi biner genap tanpa jitter, dipilih pembagi:
-  $$\text{DIVIDER} = 16 \implies f_{\text{SCLK}} = \frac{100\text{ MHz}}{16} = 6,25\text{ MHz}$$
-  Periode clock `SCLK` adalah $T_{\text{SCLK}} = 160\text{ ns}$ (lebar pulsa HIGH 80 ns, LOW 80 ns). Nilai ini memenuhi batas datasheet ($160\text{ ns} > 100\text{ ns}$) dengan margin keselamatan waktu sebesar $60\%$ [DIASUMSIKAN].
+### 1.2 Pembagi Frekuensi Clock SPI (`SCLK`) & Karakteristik Timing AC
+
+#### A. Pembagian Frekuensi Clock dari 100 MHz Basys 3
+Clock utama board Basys 3 beroperasi pada frekuensi $100\text{ MHz}$ (periode $10\text{ ns}$) [DIVERIFIKASI: `constraints/basys3.xdc` baris 8].
+Untuk menghasilkan clock yang stabil dengan pembagi biner genap tanpa jitter, dipilih pembagi:
+$$\text{DIVIDER} = 16 \implies f_{\text{SCLK}} = \frac{100\text{ MHz}}{16} = 6,25\text{ MHz}$$
+Periode clock `SCLK` adalah $T_{\text{SCLK}} = 160\text{ ns}$ (lebar pulsa HIGH 80 ns, LOW 80 ns).
+
+#### B. Evaluasi Karakteristik Timing AC (Datasheet SSD1306 Rev 1.1 vs FSM SPI Usulan) [DIVERIFIKASI: `ssd1306_raw.txt`]
+Berikut adalah perbandingan parameter timing AC resmi dari lembar data Solomon Systech SSD1306 Rev 1.1 terhadap perancangan FSM master SPI FPGA pada modul `oled_spi.vhd`:
+
+| Simbol Parameter | Nama Parameter Timing | Batas Datasheet (Rev 1.1) | Halaman & Judul Tabel di `ssd1306_raw.txt` | Karakteristik FSM Master SPI FPGA (Clock 100 MHz, SCLK 6,25 MHz) | Dipenuhi? |
+|---|---|---|---|---|---|
+| $t_{\text{cycle}}$ | Clock Cycle Time | Min $100\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Periode $T_{\text{SCLK}} = 160\text{ ns}$ (16 siklus clock 100 MHz). | **YA** (margin $+60\%$) |
+| $t_{\text{CLKL}}$ | Clock Low Pulse Width | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Pulsa LOW `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **YA** (margin $+300\%$) |
+| $t_{\text{CLKH}}$ | Clock High Pulse Width | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Pulsa HIGH `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **YA** (margin $+300\%$) |
+| $t_{\text{CSS}}$ ($t_{\text{CSSU}}$) | Chip Select Setup Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `CS` di-assert LOW minimal 2 siklus ($20\text{ ns}$) s.d. 1 periode `SCLK` ($160\text{ ns}$) sebelum tepi pertama `SCLK`. | **YA** |
+| $t_{\text{CSH}}$ | Chip Select Hold Time | Min $10\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `CS` ditahan LOW minimal 2 siklus ($20\text{ ns}$) s.d. 1 periode `SCLK` ($160\text{ ns}$) setelah tepi terakhir `SCLK` sebelum de-asersi ke HIGH. | **YA** |
+| $t_{\text{AS}}$ | Address Setup Time (`D/C#`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `D/C#` disetel bersamaan dengan `CS` assert, mendahului tepi naik `SCLK` pertama minimal $\ge 20\text{ ns}$ (hingga $160\text{ ns}$). | **YA** |
+| $t_{\text{AH}}$ | Address Hold Time (`D/C#`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `D/C#` dipertahankan stabil sepanjang seluruh frame/byte transmisi ($> 1,3\text{ ms} \gg 15\text{ ns}$). | **YA** |
+| $t_{\text{DSW}}$ | Write Data Setup Time (`SDIN`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Data `MOSI` disiapkan pada tepi turun `SCLK`, memberikan setup time 8 siklus clock = $80\text{ ns}$ terhadap tepi naik berikutnya. | **YA** (margin $+433\%$) |
+| $t_{\text{DHW}}$ | Write Data Hold Time (`SDIN`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Data `MOSI` dipertahankan stabil selama fase HIGH = 8 siklus clock = $80\text{ ns}$ hingga tepi turun berikutnya. | **YA** (margin $+433\%$) |
+| $t_{\text{RES}}$ | Reset Low Pulse Width | Min $3\ \mu\text{s}$ | Hal. 49, Table 13-1: AC Characteristics | Pulsa reset hardware LOW dibangkitkan selama 1.000 siklus clock 100 MHz = $10\ \mu\text{s}$. | **YA** (margin $+233\%$) |
 
 ### 1.3 Analisis Anggaran Waktu Transfer per Frame (Frame Budget)
 - **Ukuran Data Grafis Layar 128×64:**
@@ -56,62 +71,49 @@ Modul hardware `oled_spi.vhd` akan mengimplementasikan State Machine (FSM) inisi
 3. **Pengiriman Urutan Perintah Konfigurasi:** Dikirim secara serial dengan sinyal `DC = 0` dan `CS = 0`.
 4. **Display ON:** Perintah `0xAF` dikirim di akhir urutan konfigurasi untuk menghidupkan panel layar.
 
-#### B. Tabel Perintah Inisialisasi & Urutan Penulisan Frame [DIASUMSIKAN]
-> [!NOTE]
-> Seluruh byte perintah dan urutan berikut didasarkan pada konvensi pustaka pengendali SSD1306 open-source komunitas (seperti Adafruit SSD1306 / U8g2) dan berstatus **[DIASUMSIKAN]** karena berkas datasheet resmi Solomon Systech SSD1306 tidak disimpan di dalam repositori proyek ini. Pengguna wajib memverifikasi item-item pada daftar periksa di bawah terhadap datasheet modul fisik yang dimiliki.
+#### B. Tabel Perintah Inisialisasi Register SSD1306 Byte demi Byte [DIVERIFIKASI: `ssd1306_raw.txt`]
 
-| No | Tahap / Perintah (Hex) | Nama Fungsi / Register | Status Pin SPI (`RES`, `CS`, `DC`) | Makna & Pengaturan Teknis | Alasan Pemilihan Nilai | Sumber Acuan |
-|---|---|---|---|---|---|---|
-| - | **Daya & Reset** | Power-on & Reset Pulse | `RES=0`, `CS=1`, `DC=0` $\rightarrow$ `RES=1` | Pulsa reset hardware minimum $10\ \mu\text{s}$ pasca catu daya stabil. | Memastikan FSM internal controller SSD1306 berada pada kondisi default pabrik. | Modul OLED hardware [DIASUMSIKAN] |
-| 1 | `0xAE` | Display OFF | `RES=1`, `CS=0`, `DC=0` | Mematikan panel layar OLED (Sleep mode). | Mencegah tampilan artefak visual/noise di panel saat register dikonfigurasi. | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 2 | `0xD5`, `0x80` | Set Display Clock Divide Ratio | `RES=1`, `CS=0`, `DC=0` | Menyetel rasio pembagi clock tampilan dan frekuensi osilator internal (`0x80`). | Nilai nominal default: osilator pada frekuensi tengah dan pembagi clock = 1 untuk stabilitas refresh panel. | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 3 | `0xA8`, `0x3F` | Set Multiplex Ratio | `RES=1`, `CS=0`, `DC=0` | Menyetel rasio multiplexing ke 64MUX (`0x3F` = 63 desimal). | Menyesuaikan tinggi fisik panel OLED yang digunakan yaitu 64 baris baris piksel. | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 4 | `0xD3`, `0x00` | Set Display Offset | `RES=1`, `CS=0`, `DC=0` | Menyetel offset pemetaan vertikal ke baris 0. | Tampilan dimulai tepat pada baris fisik teratas tanpa pergeseran baris. | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 5 | `0x40` | Set Display Start Line | `RES=1`, `CS=0`, `DC=0` | Menentukan baris awal RAM pada baris 0 (RAM line 0). | Mengunci sinkronisasi baris atas RAM terhadap baris pertama panel. | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 6 | `0x8D`, `0x14` | Charge Pump Setting | `RES=1`, `CS=0`, `DC=0` | Mengaktifkan pompa muatan internal 7,5V (`0x14` = Enable). | **Wajib diaktifkan** untuk modul 7-pin yang ditenagai murni dari 3,3V PMOD tanpa sumber catu eksternal VCC panel 7-15V. | Konvensi modul OLED SPI 3,3V [DIASUMSIKAN] |
-| 7 | `0x20`, `0x00` | Set Memory Addressing Mode | `RES=1`, `CS=0`, `DC=0` | Menyetel mode pengalamatan horizontal (`0x00`). | Pointer kolom otomatis melompat ($0..127$) dan ganti halaman ($0..7$), memungkinkan pengiriman 1.024 Byte terus-menerus. | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 8 | `0xA1` | Set Segment Re-map | `RES=1`, `CS=0`, `DC=0` | Memetakan alamat kolom 127 ke SEG0 (pemetaan terbalik). | Mengoreksi orientasi kolom horizontal agar teks/grafis tidak tampak terbalik (*mirror*). | Konvensi modul OLED SPI 3,3V [DIASUMSIKAN] |
-| 9 | `0xC8` | Set COM Output Scan Direction | `RES=1`, `CS=0`, `DC=0` | Memindai COM dari baris COM[N-1] ke COM0 (pemetaan terbalik). | Mengoreksi orientasi vertikal agar tampilan tidak terbalik atas-bawah. | Konvensi modul OLED SPI 3,3V [DIASUMSIKAN] |
-| 10 | `0xDA`, `0x12` | Set COM Pins Hardware Config | `RES=1`, `CS=0`, `DC=0` | Menyetel konfigurasi pin COM alternatif untuk resolusi 128×64 (`0x12`). | Sesuai dengan pengkabelan fisik baris COM internal panel 128×64 piksel. | Pustaka modul 128×64 [DIASUMSIKAN] |
-| 11 | `0x81`, `0xCF` | Set Contrast Control | `RES=1`, `CS=0`, `DC=0` | Menyetel register kontras ke tingkat tinggi (`0xCF` dari rentang `0x00..0xFF`). | Memberikan kontras tinggi dan ketajaman visual optimal pada tegangan kerja 3,3V. | Pustaka Adafruit SSD1306 [DIASUMSIKAN] |
-| 12 | `0xD9`, `0xF1` | Set Pre-charge Period | `RES=1`, `CS=0`, `DC=0` | Fase 1 = 1 DCLK, Fase 2 = 15 DCLK (`0xF1`). | Memberikan waktu pengisian awal kapasitansi piksel yang cukup untuk stabilitas tingkat hitam/putih. | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 13 | `0xDB`, `0x40` | Set VCOMH Deselect Level | `RES=1`, `CS=0`, `DC=0` | Menyetel level ambang VCOMH ke ~0,77 × VCC (`0x40`). | Menjaga ambang batas deselect transistor panel agar piksel mati tidak bocor cahaya. | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 14 | `0xA4` | Entire Display ON Resume | `RES=1`, `CS=0`, `DC=0` | Mengarahkan output tampilan mengikuti isi GDRAM internal. | Menghindari mode pemaksaan seluruh piksel menyala (bukan `0xA5`). | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 15 | `0xA6` | Set Normal / Inverse Display | `RES=1`, `CS=0`, `DC=0` | Menyetel mode normal (`0xA6`: bit 1 = menyala, bit 0 = padam). | Sesuai konvensi citra Bad Apple (latar hitam, objek putih). | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 16 | `0xAF` | Display ON | `RES=1`, `CS=0`, `DC=0` | Menghidupkan panel OLED setelah konfigurasi selesai. | Mengaktifkan penyalaan panel setelah seluruh register berada pada keadaan stabil. | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 17 | `0x21`, `0x00`, `0x7F` | Set Column Address | `RES=1`, `CS=0`, `DC=0` | Menyetel rentang kolom dari 0 s.d. 127 sebelum penulisan frame. | Mengembalikan pointer kolom GDRAM ke koordinat awal $x=0$ sebelum transfer frame baru. | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 18 | `0x22`, `0x00`, `0x07` | Set Page Address | `RES=1`, `CS=0`, `DC=0` | Menyetel rentang halaman dari 0 s.d. 7 sebelum penulisan frame. | Mengembalikan pointer halaman GDRAM ke koordinat awal $y=0$ (Page 0) sebelum transfer frame baru. | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| 19 | `1.024 Byte Data` | GDRAM Display Data Write | `RES=1`, `CS=0`, `DC=1` | Mengalirkan 1.024 Byte data grafis frame ke memori GDRAM OLED. | Mengisi memori piksel panel OLED (128 kolom × 8 page) secara terus-menerus. | Pustaka umum SSD1306 [DIASUMSIKAN] |
-| - | **Selesai / Idle** | Frame Bus Idle | `RES=1`, `CS=1`, `DC=1` atau `0` | Chip Select dide-asersi ke HIGH saat bus SPI hening antar-frame. | Melepas jalur bus SPI selama waktu hening (~32 ms) hingga frame berikutnya siap. | Protokol SPI Mode 0 [DIASUMSIKAN] |
+Tabel berikut memvalidasi setiap byte perintah konfigurasi inisialisasi FSM modul `oled_spi.vhd` secara langsung terhadap teks lembar data Solomon Systech SSD1306 Rev 1.1 (`ssd1306_raw.txt`):
 
-#### C. Perbandingan dengan Urutan Pustaka Umum [DIASUMSIKAN]
-> [!NOTE]
-> Urutan pembanding berikut BUKAN berasal dari verifikasi independen terhadap berkas datasheet resmi (karena datasheet fisik tidak disertakan di dalam repositori), melainkan disusun berdasarkan ingatan dan konvensi pustaka umum open-source (seperti Adafruit SSD1306 / U8g2) yang dirangkum pada diskusi prompt sebelumnya. Pengguna wajib memverifikasi setiap byte register terhadap lembar data resmi modul OLED yang digunakan.
+| No | Byte (Hex) | Arti / Fungsi Register | Halaman & Judul Tabel di `ssd1306_raw.txt` | Kutipan Literal ($\le 10$ kata) | Status |
+|---|---|---|---|---|---|
+| 1 | `0xAE` | Display OFF (Sleep Mode) | Hal. 28, Table 9-1: 1. Fundamental Command Table | "Display OFF (sleep mode)" | **DITEMUKAN DI PDF** |
+| 2 | `0xD5`, `0x80` | Set Display Clock Divide Ratio & Oscillator Frequency | Hal. 32, Table 9-1: 5. Timing & Driving Scheme Setting Command Table | "Set Display Clock Divide Ratio/Oscillator Frequency" | **DITEMUKAN DI PDF** |
+| 3 | `0xA8`, `0x3F` | Set Multiplex Ratio (64MUX) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "Set MUX ratio to N+1 MUX" | **DITEMUKAN DI PDF** |
+| 4 | `0xD3`, `0x00` | Set Display Offset (Offset 0) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "Set vertical shift by COM from 0d~63d" | **DITEMUKAN DI PDF** |
+| 5 | `0x40` | Set Display Start Line (Line 0) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "Set display RAM display start line register" | **DITEMUKAN DI PDF** |
+| 6 | `0x8D`, `0x14` | Charge Pump Setting (Enable 7,5V) | Tidak ada di PDF Rev 1.1 | "Tidak ditemukan dalam dokumen Rev 1.1" | **TIDAK DITEMUKAN DI PDF \| KONVENSI PUSTAKA** |
+| 7 | `0x20`, `0x00` | Set Memory Addressing Mode (Horizontal Addressing) | Hal. 30, Table 9-1: 3. Addressing Setting Command Table | "A[1:0] = 00b, Horizontal Addressing Mode" | **DITEMUKAN DI PDF** |
+| 8 | `0xA1` | Set Segment Re-map (Kolom 127 ke SEG0) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "column address 127 is mapped to SEG0" | **DITEMUKAN DI PDF** |
+| 9 | `0xC8` | Set COM Output Scan Direction (COM[N-1] ke COM0) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "remapped mode. Scan from COM[N-1] to COM0" | **DITEMUKAN DI PDF** |
+| 10 | `0xDA`, `0x12` | Set COM Pins Hardware Configuration (Alternative PIN, Disable L/R Remap) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table & Hal. 40, Table 10-3 | "Alternative COM pin configuration (RESET)" | **DITEMUKAN DI PDF** |
+| 11 | `0x81`, `0xCF` | Set Contrast Control (Tingkat kontras tinggi `0xCF`) | Hal. 28, Table 9-1: 1. Fundamental Command Table | "contrast increases as the value increases" | **DITEMUKAN DI PDF** (perintah `81h` reset `7Fh`; nilai `CFh` konvensi pustaka) |
+| 12 | `0xD9`, `0xF1` | Set Pre-charge Period (Phase 1 = 1 DCLK, Phase 2 = 15 DCLK) | Hal. 32, Table 9-1: 5. Timing & Driving Scheme Setting Command Table | "Phase 1 period... Phase 2 period" | **DITEMUKAN DI PDF** (perintah `D9h` reset `22h`; nilai `F1h` konvensi pustaka) |
+| 13 | `0xDB`, `0x20` | Set VCOMH Deselect Level (~0,77 × VCC) | Hal. 32, Table 9-1: 5. Timing & Driving Scheme Setting Command Table | "010b 20h ~ 0.77 x VCC (RESET)" | **DITEMUKAN DI PDF** |
+| 14 | `0xA4` | Entire Display ON (Resume to RAM Content) | Hal. 28, Table 9-1: 1. Fundamental Command Table | "Resume to RAM content display (RESET)" | **DITEMUKAN DI PDF** |
+| 15 | `0xA6` | Set Normal Display | Hal. 28, Table 9-1: 1. Fundamental Command Table | "A6h, X[0]=0b: Normal display (RESET)" | **DITEMUKAN DI PDF** |
+| 16 | `0xAF` | Display ON (Normal Mode) | Hal. 28, Table 9-1: 1. Fundamental Command Table | "Display ON in normal mode" | **DITEMUKAN DI PDF** |
+| 17 | `0x21`, `0x00`, `0x7F` | Set Column Address (Rentang kolom $0..127$) | Hal. 30, Table 9-1: 3. Addressing Setting Command Table | "Setup column start and end address" | **DITEMUKAN DI PDF** |
+| 18 | `0x22`, `0x00`, `0x07` | Set Page Address (Rentang halaman $0..7$) | Hal. 31, Table 9-1: 3. Addressing Setting Command Table | "Setup page start and end address" | **DITEMUKAN DI PDF** |
 
-Urutan inisialisasi dan penulisan frame pada pustaka umum komunitas (misalnya Adafruit SSD1306 / U8g2 / Linux fb_ssd1306):
-`AE; D5 80; A8 3F; D3 00; 40; 8D 14; 20 00; A1; C8; DA 12; 81 CF; D9 F1; DB 40; A4; A6; AF;` lalu `21 00 7F; 22 00 07; data`.
+#### C. Catatan Khusus Verifikasi & Koreksi Register
 
-**Daftar Analisis Perbedaan & Keselarasan [DIASUMSIKAN]:**
-1. **Urutan dan Nilai Perintah Init (Langkah 1..16):** Urutan rancangan pada tabel di atas identik 100% (*bit-exact*) dengan konvensi pustaka umum tersebut.
-2. **Pengalamatan Memori Horisontal vs Halaman:** Kombinasi perintah `0x20 0x00` (Horizontal Addressing Mode) diikuti perintah framing `0x21 0x00 0x7F` (Set Column Address) dan `0x22 0x00 0x07` (Set Page Address) memungkinkan pengiriman seluruh 1.024 byte data frame secara kontinu dalam satu burst SPI berdurasi 1,32 ms. Sebagian pustaka lama menggunakan Page Addressing Mode (`0x20 0x02`), yang mengharuskan pengiriman perintah reposisi halaman (`0xB0..0xB7`) setiap 128 byte; penggunaan mode horisontal mengeliminasi overhead tersebut dan menyederhanakan FSM hardware.
-3. **Parameter Kontras (`0x81 0xCF`):** Pustaka independen Adafruit menggunakan `0xCF` (kontras tinggi, ~207 dari 255), sementara beberapa pustaka hemat daya menggunakan `0x7F` (~127) atau `0x8F`. Nilai `0xCF` dipilih untuk memastikan keterbacaan tajam pada panel monokrom 0,96 inci.
-4. **Pre-charge Period (`0xD9 0xF1`):** Nilai default bawaan chip saat reset adalah `0x22`. Nilai `0xF1` (fase discharge 1 DCLK, fase pre-charge 15 DCLK) umumnya digunakan pustaka untuk memastikan elektroda piksel terisi penuh sebelum penyalaan.
-5. **VCOMH Deselect Level (`0xDB 0x40` vs `0x20`):** Nilai terdokumentasi di datasheet harus diperiksa pengguna; seingat asisten default reset pada datasheet SSD1306 adalah `0x20` (~0,77 × VCC), sedangkan nilai `0x40` merepresentasikan tingkat deselect lebih tinggi (~0,83 × VCC) [DIASUMSIKAN]. Pengguna wajib memverifikasi nilai mana yang direkomendasikan pabrikan panel fisik.
-6. **Perilaku Sinyal Fisik SPI (CS, DC, RES):**
-   - Sinyal `RES` ditarik LOW saat daya dinyalakan dan dipertahankan HIGH setelahnya.
-   - Sinyal `CS` diturunkan ke LOW sebelum pengiriman perintah/data, dan dinaikkan ke HIGH setelah 1.024 byte terkirim untuk mengunci data GDRAM dan melepas bus selama sisa jeda 32 ms.
-   - Sinyal `DC` bernilai LOW (`0`) untuk perintah init (Langkah 1..16) dan perintah framing (Langkah 17..18), lalu dinaikkan ke HIGH (`1`) saat byte data piksel GDRAM (Langkah 19) disalurkan.
+1. **Koreksi Register VCOMH Deselect Level (`0xDB`):**
+   - Pada lembar data resmi Rev 1.1 (Hal. 32, Table 9-1 Subtabel 5), opsi register `0xDB` terdokumentasi sebagai berikut:
+     - `A[6:4] = 000b` (`0x00`): $\sim 0,65 \times V_{\text{CC}}$
+     - `A[6:4] = 010b` (`0x20`): $\sim 0,77 \times V_{\text{CC}}$ (**Kondisi RESET Default**)
+     - `A[6:4] = 011b` (`0x30`): $\sim 0,83 \times V_{\text{CC}}$
+   - Nilai `0x40` **TIDAK TERDOKUMENTASI DI DALAM PDF REV 1.1**.
+   - Pernyataan pada catatan Bagian 4i sebelumnya yang menyebutkan bahwa "nilai `0x40` merepresentasikan $\sim 0,83 \times V_{\text{CC}}$" adalah keliru dan **RESMI DIHAPUS**. Nilai resmi untuk $\sim 0,83 \times V_{\text{CC}}$ menurut datasheet adalah `0x30`.
+   - Modul `oled_spi` menggunakan nilai standar datasheet `0x20` ($\sim 0,77 \times V_{\text{CC}}$).
 
-#### D. Daftar Byte Inisialisasi yang Wajib Diverifikasi Pengguna terhadap Datasheet Asli [DIASUMSIKAN]:
-1. **`0x8D, 0x14` (Charge Pump Setting):** Pastikan modul 7-pin pengguna membutuhkan aktivasi pompa muatan internal (`0x14` = Enable 7,5V). Jika modul ditenagai murni dari 3,3V pin PMOD tanpa catu panel eksternal 7–15V, layar tidak akan menyala jika charge pump di-disable (`0x10`).
-2. **`0x20, 0x00` (Set Memory Addressing Mode):** Pastikan controller SSD1306 mendukung mode pengalamatan horizontal (`0x00`) agar data 1.024 Byte dapat ditulis berurutan secara otomatis tanpa mengirim perintah reposisi halaman (`0xB0..0xB7`) per 128 byte.
-3. **`0xA1` (Set Segment Re-map):** Menentukan arah pemetaan kolom (kolom 127 dipetakan ke SEG0). Periksa apakah orientasi horizontal citra membutuhkan `0xA1` atau `0xA0`.
-4. **`0xC8` (Set COM Output Scan Direction):** Menentukan arah pemindaian vertikal baris (COM[N-1] ke COM0). Periksa apakah orientasi vertikal citra membutuhkan `0xC8` atau `0xC0`.
-5. **`0xDA, 0x12` (Set COM Pins Hardware Config):** Memilih konfigurasi pin COM alternatif (`0x12`) untuk panel 128×64. Pada panel dengan layout pin berurutan atau tinggi 32 baris biasanya digunakan `0x02`.
-6. **`0x81, 0xCF` (Set Contrast Control):** Nilai kontras `0xCF` (~207 desimal). Periksa arus kerja panel dan apakah default pabrik `0x7F` (~127 desimal) sudah mencukupi.
-7. **`0xD9, 0xF1` (Set Pre-charge Period):** Fase discharge 1 DCLK dan phase pre-charge 15 DCLK (`0xF1`). Default reset bawaan adalah `0x22`.
-8. **`0xDB, 0x40` vs `0x20` (Set VCOMH Deselect Level):** Periksa datasheet modul: nilai default reset menurut datasheet umumnya adalah `0x20` (~0,77 × VCC), sedangkan nilai `0x40` (~0,83 × VCC) sering digunakan pada pustaka pihak ketiga.
-9. **Timing Sinyal Reset Hardware (`RES`):** Durasi pulsa minimum sinyal reset aktif LOW ($t_{RES}$) dan jeda stabilisasi pasca-reset ($t_{RES\_wait}$) sebelum transaksi SPI pertama dikirim.
+2. **Konfigurasi Pin COM (`0xDA`) & Analisis Kesalahan Penataan Baris:**
+   - Pertahankan nilai `0x12` (`A[4]=1, A[5]=0`: *Alternative COM pin configuration*, *Disable Left/Right remap*) sebagai nilai generic default modul.
+   - *Koreksi terhadap Pernyataan Sebelumnya:* Pernyataan lama yang menduga bahwa kesalahan nilai `0xDA` menyebabkan "layar hanya tampil 32 baris" adalah **SALAH**. Gejala nyata jika nilai konfigurasi pin COM salah pada panel 128×64 adalah tampilan **baris bergantian atau teracak (*interleaved / scrambled rows*)** karena perataan nomor baris ganjil/genap tertukar antara pin COM atas dan COM bawah.
+   - *Rujukan Contoh Penggunaan `0x02` pada Datasheet:* Pada Halaman 40, Table 10-3 (*COM Pins Hardware Configuration*), Kondisi 1 dan Kondisi 2 menampilkan konfigurasi `DAh A[4]=0` (yaitu `0x02` jika `A[5]=0`). Contoh ini berlaku spesifik untuk panel 128×64 yang tata letak fisiknya memiliki pengkabelan pad COM berurutan secara blok (*Sequential COM pin configuration*, di mana COM0..COM31 berada di satu sisi dan COM32..COM63 di sisi sebaliknya), bukan layout interleaved.
+
+3. **Status Perintah Charge Pump Setting (`0x8D 0x14`):**
+   - Perintah `0x8D 0x14` sama sekali tidak ditemukan di dalam dokumen spesifikasi SSD1306 Rev 1.1. Perintah ini merupakan konvensi pustaka industri open-source (Adafruit SSD1306, U8g2) dan application note terpisah Solomon Systech untuk mengaktifkan rangkaian pengali tegangan internal 7,5V pada modul 0,96" 7-pin yang ditenagai murni dari catu 3,3V pin PMOD.
 
 ### 1.5 Mekanisme Buffer Swap & Sinkronisasi Frame
 - Pembaruan tampilan OLED dilakukan tepat setelah frame baru selesai didekode ke BRAM frame buffer dan sinyal swap bank BRAM aktif [DIVERIFIKASI: konsep `swap_ready` pada `hdl/frame_buffer.vhd` baris 41].
@@ -332,115 +334,68 @@ Terdapat tiga opsi arsitektur framing audio streaming:
 - **Dampak terhadap Utilisasi Blok RAMB18E1:**
   Kapasitas FIFO audio ditetapkan sebesar **2.048 Byte** ($2\text{ K} \times 8$) menggunakan **1 blok RAMB18E1** (0,5 BRAM Tile) [DIASUMSIKAN: konfigurasi True Dual-Port $2048 \times 8$]. Utilisasi ini identik dengan modul `rx_fifo` ($2\text{ K} \times 8$) yang terbukti memetakan ke tepat 1 blok RAMB18E1 pada hasil sintesis Vivado [DIVERIFIKASI: `vivado/build_m2b.log` baris 288, `u_fifo/mem_reg | 2 K x 8 | 1 RAMB18`]. Seluruh register pointer spekulatif (`w_ptr_spec`, `w_ptr_commit`, `r_ptr`) serta komparator rollback dibangun menggunakan logika fabric FPGA (LUT dan Flip-Flop), sehingga penambahan mekanisme commit/rollback pada audio FIFO **TIDAK** membutuhkan penambahan blok RAMB18E1 baru.
 
-#### B. Analisis Drift Jam Akumulatif, Watermark 2.048 B, & Ketahanan Jeda (D-17)
+#### B. Analisis Drift Jam Akumulatif, Watermark 2.048 B, & Ketahanan Jeda (D-17 / D-18)
+
+- **Formulasi Persamaan Indeks Aliran Audio ($S, C, L$):**
+  Didefinisikan variabel status aliran audio pada domain waktu kontinu $t$:
+  - $S(t)$: Jumlah total sampel audio yang telah berhasil dikirim oleh Host PC dan masuk ke FIFO audio FPGA sejak awal pemutaran ($t_0$).
+  - $C(t)$: Jumlah total sampel audio yang telah diputar (dikonsumsi) oleh modulator PWM DAC hardware FPGA sejak output audio diaktifkan.
+  - $L(t) = S(t) - C(t)$: Tingkat keterisian (*occupancy level*) buffer audio FIFO pada saat $t$ (dalam satuan byte/sampel).
+  - *Syarat Kesinkronan Sempurna Audio-Video:*
+    Video diputar mengikuti laju nominal 30 FPS berdasarkan jam waktu dinding $t$. Aliran audio berada dalam kondisi **sinkron sempurna dengan video** jika dan hanya jika:
+    $$C(t) = 8.000 \times (t - t_0)$$
+    **Perhatikan bahwa $C(t)$ sama sekali TIDAK BERGANTUNG pada nilai $L(t)$, selama $L(t) > 0$** (buffer tidak mengalami kekosongan/underflow)!
+
 - **Parameter Kapasitas FIFO & Fase Pre-roll [DIASUMSIKAN]:**
-  - **Kapasitas FIFO Audio Hardware:** $2.048\text{ Byte}$ (1 blok RAMB18E1). Pada laju $8.000\text{ Byte/s}$, kapasitas total setara dengan durasi penyangga:
-    $$T_{\text{buf}} = \frac{2.048\text{ Byte}}{8.000\text{ Byte/s}} = 0,256\text{ detik} = \mathbf{256\text{ ms}} \quad (\approx 7,68\text{ frame video pada 30 FPS})$$
-  - **Fase Pengisian Awal (*Pre-roll Lead Time*):** $1.024\text{ Byte}$ ($50\%$ kapasitas FIFO, setara $\mathbf{128\text{ ms}}$ atau $\approx 3,84\text{ frame video}$). Output PWM dipertahankan hening (`0x80`) selama fase pengisian awal hingga $1.024\text{ Byte}$ terkumpul, kemudian tick generator 8 kHz mulai aktif.
+  - **Kapasitas FIFO Audio Hardware:** $2.048\text{ Byte}$ (1 blok RAMB18E1). Pada laju $8.000\text{ Byte/s}$, kapasitas total setara durasi $256\text{ ms}$ (7,68 frame video).
+  - **Fase Pengisian Awal (*Pre-roll Lead Time*):** $1.024\text{ Byte}$ ($50\%$ kapasitas FIFO, setara $\mathbf{128\text{ ms}}$ atau $3,84\text{ frame video}$). Output PWM dipertahankan hening (`0x80`) selama fase pengisian awal hingga $1.024\text{ Byte}$ terkumpul, kemudian pemutaran audio dimulai ($C(t)$ mulai bertambah).
   - **Ambang Batas Watermark ($20\% / 80\%$):**
-    - Ambang batas bawah (*Low Watermark*, $20\%$): $2.048 \times 0,20 = 409,6 \approx \mathbf{410\text{ Byte}}$ ($51,25\text{ ms}$).
-    - Ambang batas atas (*High Watermark*, $80\%$): $2.048 \times 0,80 = 1.638,4 \approx \mathbf{1.638\text{ Byte}}$ ($204,75\text{ ms}$).
-    - Lebar jendela toleransi watermark ($80\% - 20\%$):
-      $$W_{\text{watermark}} = 1.638\text{ B} - 410\text{ B} = \mathbf{1.228\text{ Byte}} \quad (153,5\text{ ms})$$
-    - Margin dari titik kerja pre-roll ($1.024\text{ Byte}$):
-      - Margin ke High Watermark ($80\%$): $1.638 - 1.024 = \mathbf{614\text{ Byte}}$ ($76,75\text{ ms}$).
-      - Margin ke Low Watermark ($20\%$): $1.024 - 410 = \mathbf{614\text{ Byte}}$ ($76,75\text{ ms}$).
-      - Margin ke Underflow Absolut (0 Byte): $1.024 - 0 = \mathbf{1.024\text{ Byte}}$ ($128\text{ ms}$).
-      - Margin ke Overflow Absolut (2.048 Byte): $2.048 - 1.024 = \mathbf{1.024\text{ Byte}}$ ($128\text{ ms}$).
+    - Ambang batas bawah (*Low Watermark*, $20\%$): $2.048 \times 0,20 = \mathbf{410\text{ Byte}}$ ($51,25\text{ ms}$).
+    - Ambang batas atas (*High Watermark*, $80\%$): $2.048 \times 0,80 = \mathbf{1.638\text{ Byte}}$ ($204,75\text{ ms}$).
+    - Margin dari titik kerja nominal ($1.024\text{ Byte}$) ke kedua watermark: $1.024 - 410 = 1.638 - 1.024 = \mathbf{614\text{ Byte}}$ ($76,75\text{ ms}$).
+    - Margin ke Underflow Absolut ($L=0$): $\mathbf{1.024\text{ Byte}}$ ($128\text{ ms}$).
 
-- **Aritmetika Slip Sampel pada Laju Sampling 8 kHz [DIVERIFIKASI: perhitungan matematis]:**
-  - Deviasi frekuensi $100\text{ ppm}$ ($100 \times 10^{-6}$):
-    $$\text{Laju Drift}_{100\text{ppm}} = 8.000\text{ sampel/s} \times 100 \times 10^{-6} = 0,80\text{ sampel/detik} \implies T_{\text{slip, 100ppm}} = \frac{1}{0,80} = 1,25\text{ detik}$$
-  - Deviasi frekuensi $250\text{ ppm}$ ($250 \times 10^{-6}$):
-    $$\text{Laju Drift}_{250\text{ppm}} = 8.000\text{ sampel/s} \times 250 \times 10^{-6} = 2,00\text{ sampel/detik} \implies T_{\text{slip, 250ppm}} = \frac{1}{2,00} = 0,50\text{ detik}$$
-  - Total akumulasi drift sepanjang pemutaran video penuh ($217,84\text{ detik}$):
-    - Pada $100\text{ ppm}$: $217,84\text{ s} \times 0,80\text{ sampel/s} = 174,27 \approx \mathbf{174\text{ sampel}}$ (Byte).
-    - Pada $250\text{ ppm}$: $217,84\text{ s} \times 2,00\text{ sampel/s} = 435,68 \approx \mathbf{436\text{ sampel}}$ (Byte).
+- **Koreksi Penalaran Jeda Transmisi Host 100 ms (Mengapa Pemulihan Lewat Slip Salah):**
+  Misalkan terjadi jeda transmisi sesaat pada Host PC sebesar $T_{\text{stall}} = 100\text{ ms}$ ($800\text{ sampel}$):
+  1. Selama jeda $100\text{ ms}$, host tidak mengirim paket audio ($S(t)$ tidak bertambah).
+  2. Karena buffer memiliki cadangan pre-roll $1.024\text{ Byte}$, konsumsi FPGA tetap berjalan normal tanpa terputus: $C(t)$ terus bertambah secara mulus tepat pada laju $8.000\text{ sampel/detik}$.
+  3. Isi buffer $L(t)$ turun dari $1.024\text{ B}$ ke:
+     $$L = 1.024 - 800 = \mathbf{224\text{ Byte}} > 0\text{ Byte}$$
+  4. **Status Kesinkronan:** Karena $L = 224\text{ Byte} > 0$, pembacaan audio tidak mengalami underflow ($C(t)$ tidak terputus). Oleh karena itu, **AUDIO TETAP SINKRON SEMPURNA DENGAN VIDEO!** Yang berkurang hanyalah cadangan toleransi (*headroom*) buffer terhadap jitter transmisi berikutnya (margin tersisa $224\text{ B} = 28\text{ ms}$).
+  5. **Kekeliruan Konsep "Pemulihan Level Lewat Slip":**
+     Jika level buffer $L$ dinaikkan kembali ke $1.024\text{ B}$ dengan mengulang sampel (slip repeat) lokal FPGA sebanyak 800 sampel:
+     Setiap sampel yang diulang menghentikan pertambahan $C(t)$ selama 1 periode sampel ($125\ \mu\text{s}$). Mengulang 800 sampel akan menahan $C(t)$ selama $800 \times 125\ \mu\text{s} = \mathbf{100\text{ ms}}$, sehingga **AUDIO TERTINGGAL SECARA PERMANEN SEBESAR 100 MS TERHADAP VIDEO!**
+     Artinya, pemulihan level buffer melalui slip lokal justru **MERUSAK SINKRONISASI AUDIO-VIDEO** yang sebelumnya masih utuh!
+  6. **Solusi Pemulihan yang Benar: Host Catch-up Burst (8,68 ms):**
+     Pemulihan level $L$ dari $224\text{ B}$ ke $1.024\text{ B}$ **HANYA BOLEH DILAKUKAN MELALUI CATCH-UP BURST DARI HOST PC**. Begitu jeda berakhir, host segera mengirimkan 800 byte tertunda pada kecepatan penuh UART 921.600 baud ($92.160\text{ B/s}$). Transmisi 800 B ini selesai hanya dalam:
+     $$T_{\text{burst}} = rac{800\text{ B}}{92.160\text{ B/s}} pprox \mathbf{8,68\text{ ms}}$$
+     Selama 8,68 ms tersebut konsumsi FPGA hanya $8,68 \times 8 = 69\text{ B}$, sehingga level buffer pulih ke $224 + 800 - 69 = \mathbf{955\text{ Byte}}$ dalam waktu $< 9\text{ ms}$ tanpa menggeser timeline $C(t)$ sama sekali. Seluruh klaim lama mengenai pemulihan lewat 800 slip selama 40 detik resmi **DIHAPUS**.
 
-- **Parameter Kontrol Slip (Interval Minimum & Histeresis) serta Kapasitas Koreksi vs Drift 250 ppm (D-17) [DIVERIFIKASI: perhitungan matematis]:**
-  - **Selang Minimum Antar-Slip ($T_{\text{slip\_min}}$):**
-    Ditetapkan batas jeda minimum antar-koreksi slip sebesar $T_{\text{slip\_min}} = 10\text{ ms s.d. } 50\text{ ms}$ (setara 80 s.d. 400 sampel audio pada 8 kHz). Pembatasan ini mencegah terjadinya pengulangan atau pembuangan sampel yang terlalu rapat yang dapat menimbulkan distorsi frekuensi (*pitch shift*) atau artefak flutter yang terdengar oleh telinga manusia.
-  - **Batas Ambang Histeresis Watermark:**
-    Untuk menghindari osilasi bolak-balik (*hunting/jitter*) pada batas watermark:
-    - *Low Watermark Hysteresis:* Mode pengulangan sampel aktif saat isi buffer turun di bawah $410\text{ Byte}$ ($20\%$). Koreksi slip hanya dinonaktifkan setelah isi buffer naik kembali melampaui ambang histeresis atas $\ge 512\text{ Byte}$ ($25\%$ kapasitas, margin histeresis $+102\text{ Byte}$).
-    - *High Watermark Hysteresis:* Mode pembuangan sampel aktif saat isi buffer naik melampaui $1.638\text{ Byte}$ ($80\%$). Koreksi slip hanya dinonaktifkan setelah isi buffer turun kembali melampaui ambang histeresis bawah $\le 1.536\text{ Byte}$ ($75\%$ kapasitas, margin histeresis $-102\text{ Byte}$).
-  - **Perhitungan Kapasitas Koreksi vs Drift Kristal 250 ppm:**
-    Pada deviasi kristal maksimum $250\text{ ppm}$ ($250 \times 10^{-6}$), laju akumulasi drift adalah $2,00\text{ sampel/detik}$.
-    - Pada interval slip konservatif $T_{\text{slip\_min}} = 50\text{ ms}$ ($20\text{ koreksi/detik}$), kapasitas koreksi maksimum adalah $20\text{ sampel/s}$, yaitu **$10\times$ lebih besar** daripada laju drift 250 ppm.
-    - Pada interval slip agresif $T_{\text{slip\_min}} = 10\text{ ms}$ ($100\text{ koreksi/detik}$), kapasitas koreksi maksimum adalah $100\text{ sampel/s}$, yaitu **$50\times$ lebih besar** daripada laju drift 250 ppm.
-    - *Contoh Numerik:* Pada selisih drift terburuk $250\text{ ppm}$ (FPGA kekurangan $2\text{ sampel/detik}$ akibat clock audio PC lebih lambat), jika buffer audio berada di bawah Low Watermark, algoritma slip dengan interval $50\text{ ms}$ hanya perlu aktif melakukan koreksi repeat sebanyak **2 kali per detik** (rata-rata 1 koreksi setiap 500 ms atau setiap 4.000 sampel). Koreksi $2\text{ sampel/s}$ terhadap laju $8.000\text{ sampel/s}$ secara ekuivalen setara dengan pergeseran frekuensi $0,025\%$, yang berada di bawah ambang deteksi modulasi nada kontinu (*Just Noticeable Difference* $\approx 0,5\%$). Namun, karena slip pada FPGA dilakukan secara diskret (mengulang atau membuang 1 sampel secara mendadak), slip diskret ini menghasilkan diskontinuitas fasa sesaat (*transient micro-glitch*).
-    - *Kriteria Penerimaan Pendengaran & Pemulihan Buffer per Kejadian [DIASUMSIKAN]:*
-      Pada kondisi pemutaran normal kontinu tanpa jeda transmisi host, dengan deviasi kristal maksimum $\le 250\text{ ppm}$, total akumulasi drift sepanjang 217,84 detik pemutaran adalah $436\text{ Byte}$. Karena margin dari titik kerja pre-roll ($1.024\text{ B}$) ke ambang watermark ($410\text{ B}$ atau $1.638\text{ B}$) adalah $614\text{ Byte}$, dan $436\text{ B} < 614\text{ B}$, isi buffer **sama sekali tidak pernah menyentuh ambang watermark**. Dengan demikian, pada operasi normal kontinu berlaku:
-      $$\text{Jumlah Kejadian Slip Pemutaran Normal} = \mathbf{0\text{ slip (NOL)}}$$
-      Oleh karena itu, target batas laju per-menit ("$\le 2\text{ s.d. } 5\text{ slip/menit}$") tidak relevan untuk pemutaran normal. Kejadian slip **hanya dapat terjadi jika dipicu oleh jeda/stall transmisi host PC**.
-      Sebagai gantinya, kriteria penerimaan ditetapkan berdasarkan **kriteria pemulihan per-kejadian (*per-incident recovery criteria*)**:
-      - *Jeda Transmisi Singkat ($\le 64\text{ ms}$ / defisit $\le 512\text{ B}$):* Isi buffer tetap berada di atas Low Watermark ($\ge 512\text{ B} > 410\text{ B}$). Ditargetkan **0 slip**, buffer terserap penuh tanpa gangguan akustik.
-      - *Jeda Transmisi Sedang ($64\text{ s.d. } 128\text{ ms}$ / contoh stall $100\text{ ms}$):*
-        - Jika PC melakukan *catch-up burst* pada 921.600 baud: buffer pulih ke level aman dalam waktu $< 10\text{ ms}$ ($\approx 8,7\text{ ms}$) dengan **0 slip diskret**.
-        - Jika PC tidak melakukan burst dan hanya mengandalkan slip lokal FPGA: diperlukan **186 slip** untuk keluar dari ambang batas kritis Low Watermark ($410\text{ B}$), dan **800 slip** untuk pulih penuh ke level nominal ($1.024\text{ B}$).
-        - Target Waktu Pemulihan per Kejadian:
-          - Pada $T_{\text{slip\_min}} = 50\text{ ms}$ ($20\text{ slip/detik}$): waktu keluar dari zona bahaya Low Watermark $\le \mathbf{9,3\text{ detik}}$, waktu pulih penuh $\le \mathbf{40\text{ detik}}$.
-          - Pada $T_{\text{slip\_min}} = 10\text{ ms}$ ($100\text{ slip/detik}$): waktu keluar dari zona bahaya Low Watermark $\le \mathbf{1,86\text{ detik}}$, waktu pulih penuh $\le \mathbf{8,0\text{ detik}}$.
-        - Kriteria Akustik: Efek transien slip diskret (pengulangan sampel sesaat) hanya boleh berlangsung terbatas selama jendela pemulihan per-kejadian tersebut, dan sistem tidak boleh mengalami underflow susulan (*secondary underflow*).
+- **Peran Sebenarnya dari Slip & Syarat Persistensi Dwell Time (D-17):**
+  - **Fungsi Eksklusif Slip:** Mekanisme penyesuaian adaptif lokal FPGA (slip repeat / drop 1 sampel) **HANYA BERFUNGSI MENGOREKSI DRIFT FREKUENSI OSILATOR KRISTAL JANGKA PANJANG**, bukan untuk merespons fluktuasi level buffer sesaat akibat jeda pengiriman host!
+  - **Aturan Dwell Time (Waktu Tinggal Minimum):**
+    Aturan "repeat saat $L < 410\text{ B}$" **DILARANG LANGSUNG AKTIF** begitu buffer turun sesaat akibat jeda host. Algoritma slip hanya boleh aktif apabila level buffer berada di luar rentang watermark $[410\text{ B}, 1.638\text{ B}]$ **SECARA PERSISTEN** selama waktu tinggal minimum (*dwell time*):
+    $$\tau_{\text{dwell}} \ge \mathbf{3\text{ detik}} \quad (\text{usulan rentang } 2\text{ s.d. } 5\text{ detik})$$
+    *Alasan Pemilihan Nilai $\tau_{\text{dwell}} = 3\text{ detik}$:*
+    Pada selisih drift kristal terburuk $250\text{ ppm}$, laju pergeseran buffer sangat lambat ($2\text{ sampel/detik}$). Untuk berpindah sejauh 100 sampel dibutuhkan waktu 50 detik. Sebaliknya, gangguan transmisi host atau OS jitter umumnya berlangsung $< 200\text{ ms}$ dan disusul oleh *catch-up burst* dalam $< 10\text{ ms}$. Memberikan jeda persistensi 3 detik menjamin bahwa penurunan buffer sesaat akibat jeda host memiliki waktu lebih dari cukup untuk dipulihkan oleh host burst tanpa memicu slip lokal yang dapat mendistorsi fasa audio.
+  - **Penurunan Ulang Kriteria Penerimaan Slip:**
+    - *Pada Pemutaran Normal Kontinu:* Akumulasi drift kristal maksimum $250\text{ ppm}$ sepanjang 217,84 detik adalah $436\text{ Byte}$. Karena margin pre-roll ke watermark adalah $614\text{ Byte}$ ($436 < 614$), buffer tidak pernah menyentuh watermark $\implies$ target penerimaan: **0 slip (NOL)**.
+    - *Pada Jeda Transmisi Host Singkat/Sedang ($< 128\text{ ms}$):* Host segera mengirimkan catch-up burst dalam $< 10\text{ ms}$, timer dwell tidak pernah kedaluwarsa, tidak ada slip yang dibangkitkan, dan kesinkronan $C(t)$ tetap terjaga 100%.
 
-- **Evaluasi Ketahanan Buffer terhadap Drift Osilator & Jeda Pengiriman PC [DIVERIFIKASI: perhitungan matematis]:**
-  1. **Ketahanan terhadap Drift Osilator (sepanjang 217,84 detik):**
-     - Pada deviasi $100\text{ ppm}$, total akumulasi drift adalah $174\text{ Byte}$. Karena $174\text{ B} < 614\text{ B}$ (margin watermark), isi buffer **tidak pernah menyentuh watermark** dan terserap penuh tanpa underflow.
-     - Pada deviasi batas atas $250\text{ ppm}$, total drift sepanjang 217,84 detik adalah $436\text{ Byte}$. Karena $436\text{ B} < 614\text{ B}$, akumulasi drift terburuk $250\text{ ppm}$ sekalipun **TIDAK PERNAH MENYENTUH AMBANG WATERMARK** ($436\text{ B} < 614\text{ B}$)! Seluruh pemutaran lagu penuh terserap dengan margin keselamatan $\ge 178\text{ Byte}$ di dalam jendela watermark tanpa perlu memicu koreksi slip, dan terserap sepenuhnya tanpa underflow.
-  2. **Ketahanan terhadap Jeda Pengiriman PC (Host Transmission Hiccups / OS Jitter):**
-     - **Kebijakan Transmisi Host PC: Paket Audio TIDAK Boleh Dibuang (No Host Audio Drop) [DIASUMSIKAN]:**
-       Berbeda dengan frame video di mana paket yang terlambat $> 2\text{ frame}$ ($> 66,7\text{ ms}$) dibuang (*dropped*) oleh host untuk menjaga waktu dinding video, paket audio **TIDAK PERNAH DI-DROP OLEH HOST PC**. Membuang paket audio akan menciptakan lubang hening (*gap*) atau letupan akustik yang merusak integritas pendengaran. Jika terjadi keterlambatan pengiriman pada host PC, seluruh paket audio tertunda wajib dikirim secepatnya (*catch-up burst*) pada baud rate UART penuh untuk mengisi ulang FIFO hardware ke level nominal target ($1.024\text{ B}$).
-       *Dampak ke Arsitektur `stream_player`:* Penjadwalan transmisi paket audio harus didekopel (*decoupled*) dari penjadwalan frame video. Transmisi video terikat pada interval waktu dinding $33,33\text{ ms}$ per frame, sedangkan pengiriman audio dijalankan sebagai antrean aliran data kontinu yang independen; paket audio yang tertunda akibat fluktuasi OS segera dikirim berturut-turut tanpa menunggu slot frame berikutnya.
-     - **Jeda Pengiriman $64\text{ ms}$ ($512\text{ Byte}$):**
-       Konsumsi sampel audio selama jeda = $64\text{ ms} \times 8\text{ B/ms} = 512\text{ Byte}$.
-       Sisa isi buffer FIFO = $1.024 - 512 = 512\text{ Byte} > 410\text{ Byte}$ (Low Watermark).
-       $\implies$ **TERSERAP PENUH TANPA UNDERFLOW** (bahkan buffer belum menyentuh watermark $20\%$).
-     - **Jeda Pengiriman $100\text{ ms}$ ($800\text{ Byte}$), Sisa Isi FIFO, & Analisis Pemulihan (Burst vs Slip) [DIVERIFIKASI: perhitungan matematis]:**
-       Konsumsi sampel audio selama jeda = $100\text{ ms} \times 8\text{ B/ms} = 800\text{ Byte}$.
-       Sisa isi buffer FIFO = $1.024 - 800 = \mathbf{224\text{ Byte}} > 0\text{ Byte}$ (berada di bawah Low Watermark $410\text{ Byte}$).
-       Jika setelah jeda berakhir host PC hanya mengirim audio sesuai laju konsumsi nominal ($8.000\text{ B/s}$ atau $\approx 266,7\text{ B/frame}$), maka laju masuk = laju keluar (netto 0 B/s), sehingga **isi FIFO akan tetap tertahan di level rendah $224\text{ Byte}$ (< 410 B)** dan tidak dapat pulih ke titik tengah nominal $1.024\text{ Byte}$ dengan sendirinya!
-       *Analisis Metode Pemulihan Level FIFO:*
-       1. **Metode Catch-up Burst dari PC (Rekomendasi Utama):** PC segera mengirimkan $800\text{ Byte}$ audio tertunda secara beruntun (*burst*) pada 921.600 baud. Waktu transmisi $800\text{ Byte}$ pada 921.600 baud (laju fisik $92.160\text{ B/s}$) adalah $\approx 8,68\text{ ms}$. Selama burst 8,68 ms tersebut konsumsi audio FPGA hanya $8,68 \times 8 = 69\text{ Byte}$, sehingga level FIFO pulih kembali ke $224 + 800 - 69 = \mathbf{955\text{ Byte}}$ dalam waktu kurang dari $9\text{ ms}$.
-       2. **Metode Slip Pengulangan Sampel Lokal FPGA (Repeat Sample):** Jika PC tidak melakukan burst dan hanya mengandalkan koreksi slip lokal FPGA:
-          - Defisit sampel untuk keluar dari Low Watermark ($410\text{ B}$): $410 - 224 = \mathbf{186\text{ sampel}}$.
-          - Defisit sampel untuk pulih penuh ke level nominal ($1.024\text{ B}$): $1.024 - 224 = \mathbf{800\text{ sampel}}$.
-          - Waktu pemulihan pada $T_{\text{slip\_min}} = 10\text{ ms}$ (laju koreksi $100\text{ sampel/s}$):
-            - Waktu keluar Low Watermark: $186 / 100 = \mathbf{1,86\text{ detik}}$.
-            - Waktu pulih ke level nominal: $800 / 100 = \mathbf{8,00\text{ detik}}$.
-          - Waktu pemulihan pada $T_{\text{slip\_min}} = 50\text{ ms}$ (laju koreksi $20\text{ sampel/s}$):
-            - Waktu keluar Low Watermark: $186 / 20 = \mathbf{9,30\text{ detik}}$.
-            - Waktu pulih ke level nominal: $800 / 20 = \mathbf{40,00\text{ detik}}$.
-          *Kesimpulan:* Pemulihan murni melalui mekanisme slip lokal memerlukan waktu beberapa detik hingga puluhan detik di mana buffer berada dalam kondisi sangat rentan terhadap underflow jika terjadi gangguan transmisi kedua. Oleh karena itu, *catch-up burst* dari PC merupakan syarat wajib untuk pemulihan cepat, sedangkan slip lokal hanya berfungsi mengoreksi drift frekuensi kristal kontinu.
-     - **Jeda Pengiriman $200\text{ ms}$ ($1.600\text{ Byte}$):**
-       Kebutuhan sampel audio selama jeda = $200\text{ ms} \times 8\text{ B/ms} = 1.600\text{ Byte}$.
-       Karena buffer pre-roll hanya menyediakan $1.024\text{ Byte}$ ($128\text{ ms}$), seluruh isi buffer habis terpakai pada $128\text{ ms}$ pertama, menyisakan kekurangan $576\text{ Byte}$ ($72\text{ ms}$).
-       $\implies$ **TIDAK TERSERAP (TERJADI UNDERFLOW)**. Output PWM beralih ke level hening `0x80`, dan register `cnt_audio_underflow` bertambah.
-     - **Masalah Resinkronisasi Pasca-Underflow (D-18 - TERBUKA) [DIASUMSIKAN]:**
-       Dengan kebijakan "paket audio tidak pernah dibuang oleh host PC", jika terjadi underflow selama durasi $T$ (misalnya jeda $100\text{ ms}$), output audio hardware terdiam hening selama $100\text{ ms}$. Ketika transmisi PC dilanjutkan kembali dan seluruh paket audio tertunda dikirim secara beruntun, aliran audio akan tertinggal secara permanen sebesar $100\text{ ms}$ ($800\text{ sampel}$) terhadap timeline video!
-       Jika pemulihan desinkronisasi ini hanya mengandalkan mekanisme slip lokal pada laju konservatif $20\text{ sampel/detik}$ ($2,5\text{ ms/s}$ perolehan waktu), maka waktu yang dibutuhkan untuk mengejar lag $100\text{ ms}$ adalah:
-       $$\frac{800\text{ sampel}}{20\text{ sampel/detik}} = \mathbf{40\text{ detik}}!$$
-       Selama 40 detik tersebut, audio terdengar jelas tidak sinkron dengan visual video di layar.
-       *Opsi Keputusan D-18 (Status: TERBUKA - belum ada opsi yang dipilih):*
-       1. **Opsi (A) - Indeks Paket pada `FRAME_ID(14:0)` & FPGA Skip Sampel Basi:**
-          Paket audio memuat indeks frame video referensi pada `FRAME_ID(14:0)`. Saat pulih dari underflow, FPGA membandingkan indeks audio terhadap frame video aktif; paket audio yang tertinggal langsung dibuang (*skip*) di FPGA hingga sejajar kembali dengan frame video.
-          *Trade-off:* Resinkronisasi instan, namun menambah logika komparator dan pembuangan buffer di RTL FPGA.
-       2. **Opsi (B) - Reset FIFO Lokal & PC Mengirim Ulang dari Posisi Sekarang:**
-          Saat terjadi underflow, FPGA me-reset pointer FIFO (`flush`). Host PC mendeteksi kondisi underflow, mengosongkan antrean audio lokal, dan melompati transmisi audio ke posisi frame video yang sedang aktif.
-          *Trade-off:* Logika RTL FPGA sangat sederhana (hanya pulsa reset pointer), namun membutuhkan mekanisme deteksi lag atau umpan balik UART TX dari FPGA ke PC.
-       3. **Opsi (C) - Tanpa Pemulihan Aktif (Hanya Mengandalkan Slip Lambat):**
-          Tidak ada logika pemotongan paket audio pasca-underflow. Audio dibiarkan berjalan dengan lag atau mengejar sangat perlahan melalui slip.
-          *Trade-off:* Paling hemat sumber daya FPGA, namun desinkronisasi $100\text{ ms}$ bertahan hingga 40 detik atau permanen jika isi buffer tidak melampaui High Watermark.
-  3. **Estimasi Realistis Selisih Frekuensi Kristal [DIASUMSIKAN]:**
-     Osilator kristal kuarsa komersial pada DAC PC dan FPGA Basys 3 bertoleransi $\pm 20\text{ s.d. } \pm 50\text{ ppm}$. Pada suhu ruangan stabil, selisih nyata tipikalnya adalah $20\text{ s.d. } 70\text{ ppm}$ ($\le 100\text{ ppm}$). Angka 250 ppm merupakan batas atas teoretis terburuk.
+- **Underflow Total (Jeda Transmisi Host $> 128\text{ ms}$) & Masalah Keputusan D-18:**
+  - Jika jeda transmisi host melebihi cadangan pre-roll ($T_{\text{stall}} > 128\text{ ms}$), buffer $L(t)$ turun hingga mencapai $0\text{ Byte}$ (buffer kosong total).
+  - Selama durasi kekosongan:
+    $$T_{\text{silence}} = T_{\text{stall}} - 128\text{ ms}$$
+    modulator PWM DAC tidak menerima sampel baru sehingga beralih hening (`0x80`), dan pertambahan $C(t)$ terhenti selama $T_{\text{silence}}$.
+  - Ketika transmisi host dilanjutkan kembali, aliran audio mengalami **lag desinkronisasi permanen sebesar persis durasi hening $T_{\text{silence}}$** terhadap video.
+  - Pemecahan masalah lag pasca-underflow total ini merupakan subjek dari **Keputusan D-18 (Resinkronisasi Audio-Video Pasca-Buffer Underflow)**.
+  - *Status Keputusan D-18:* **Tetap TERBUKA** (tidak ada opsi yang dipilih sepihak; evaluasi mencakup Opsi A skip paket basi di FPGA, Opsi B flush FIFO dan PC restart dari posisi sekarang, atau Opsi C tanpa pemulihan aktif).
 
 - **Pencacah Telemetri Hardware yang Dapat Dibaca (Readable Hardware Counters) [DIASUMSIKAN]:**
-  FPGA mengimplementasikan empat register pencacah status telemetri yang dapat dibaca host:
   - `cnt_audio_underflow`: Pencacah kejadian buffer kosong saat sampel audio diminta oleh modulator PWM.
   - `cnt_audio_overflow`: Pencacah kejadian paket audio tiba saat kapasitas FIFO ($2.048\text{ B}$) penuh.
-  - `cnt_audio_drop`: Pencacah jumlah sampel yang dibuang saat High Watermark (>80% / 1.638 B) aktif.
-  - `cnt_audio_repeat`: Pencacah jumlah sampel yang diulang saat Low Watermark (<20% / 410 B) aktif.
-
----
+  - `cnt_audio_drop`: Pencacah jumlah sampel yang dibuang saat High Watermark (>80% / 1.638 B) aktif secara persisten.
+  - `cnt_audio_repeat`: Pencacah jumlah sampel yang diulang saat Low Watermark (<20% / 410 B) aktif secara persisten.
 
 ## 4. Alokasi Pin PMOD (Rencana Pinout `basys3.xdc`)
 
@@ -533,12 +488,14 @@ Status keputusan desain teknis Milestone 4 per tanggal 2026-11-02:
 
 Dokumen desain konseptual ini mengacu pada sejumlah spesifikasi perangkat keras eksternal. Karena verifikasi saat ini dilakukan secara simulasi dan analisis offline tanpa board fisik, pengguna manusia **WAJIB** membuka dan memverifikasi dokumen-dokumen rujukan resmi berikut sebelum merakit perangkat keras fisik atau menerapkan modul RTL:
 
-1. **Datasheet Chip Controller Solomon Systech SSD1306:**
-   - **Sumber Acuan:** Halaman produk resmi Solomon Systech (*SSD1306 Advance Information / Product Specification*).
-   - **Tindakan Wajib Pengguna:** Pengguna wajib mengunduh atau membuka lembar data resmi ini dari halaman vendor/pabrikan, mencatat nomor revisi datasheet yang digunakan, dan memverifikasi:
-     - Urutan byte perintah register konfigurasi pada tabel inisialisasi FSM (khususnya perintah `0x8D 0x14` charge pump setting, mode pengalamatan memori `0x20 0x00`, konfigurasi pin COM `0xDA 0x12`, dan level VCOMH `0xDB`).
-     - Batas waktu siklus minimum clock antarmuka serial SPI ($t_{\text{cycle}}$) untuk memastikan clock $6,25\text{ MHz}$ ($T_{\text{SCLK}} = 160\text{ ns}$) memenuhi batas minimum datasheet.
-     - Durasi pulsa minimum sinyal reset hardware ($t_{\text{RES}}$) dan jeda stabilisasi pasca-reset sebelum transaksi SPI pertama dikirim.
+1. **Datasheet Chip Controller Solomon Systech SSD1306 (Revisi Resmi Acuan: Rev 1.1, April 2008):**
+   - **Sumber Acuan Dokumen:** Berkas ekstraksi teks lembar data resmi Solomon Systech SSD1306 Revision 1.1 (April 2008) yang tersimpan di luar repositori proyek pada path:
+     `ssd1306_raw.txt` (salinan referensi lokal di luar repositori)
+   - **Pernyataan Revisi Dokumen:** Analisis teknis pada dokumen desain ini diverifikasi secara langsung terhadap lembar data **Rev 1.1**. Pengguna wajib memperhatikan bahwa revisi lembar data yang lebih baru (misalnya Rev 1.2 ke atas) atau addendum modul terpisah dapat memuat perbedaan parameter, penambahan perintah (seperti charge pump `0x8D`), atau toleransi waktu.
+   - **Tindakan Wajib Pengguna:** Pengguna wajib membuka berkas rujukan tersebut dan memverifikasi:
+     - Urutan byte perintah register konfigurasi pada tabel inisialisasi FSM (khususnya perintah `0x8D 0x14` charge pump setting, mode pengalamatan memori `0x20 0x00`, konfigurasi pin COM `0xDA 0x12`, dan level VCOMH `0xDB 0x20`).
+     - Batas waktu siklus minimum clock antarmuka serial SPI ($t_{\text{cycle}} = 100\text{ ns}$, Hal. 52, Table 13-4) untuk memastikan clock $6,25\text{ MHz}$ ($T_{\text{SCLK}} = 160\text{ ns}$) memenuhi batas minimum datasheet.
+     - Durasi pulsa minimum sinyal reset hardware ($t_{\text{RES}} = 3\ \mu\text{s}$, Hal. 49, Table 13-1) dan jeda stabilisasi pasca-reset sebelum transaksi SPI pertama dikirim.
 
 2. **Halaman Vendor / Dokumentasi Teknis Modul Display OLED 0,96" SPI 7-Pin:**
    - **Sumber Acuan:** Halaman produk / dokumentasi teknis vendor penjual modul display OLED fisik yang dimiliki pengguna.
