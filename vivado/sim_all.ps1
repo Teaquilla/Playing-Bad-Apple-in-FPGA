@@ -119,6 +119,13 @@ $testSuites = @(
         Tb      = "sim/tb_top_stream.vhd"
         Top     = "tb_top_stream"
         PassKey = "TEST PASSED: tb_top_stream"
+    },
+    @{
+        Name    = "tb_audio_pwm"
+        Hdl     = @("hdl/audio_pwm.vhd")
+        Tb      = "sim/tb_audio_pwm.vhd"
+        Top     = "tb_audio_pwm"
+        PassKey = "TEST PASSED: tb_audio_pwm"
     }
 )
 
