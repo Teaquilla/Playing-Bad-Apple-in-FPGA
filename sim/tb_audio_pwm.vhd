@@ -285,6 +285,153 @@ begin
         report "Test 3 LULUS: Seluruh 256 nilai ramp (0..255) menghasilkan rata-rata duty per periode 8 kHz tepat.";
 
         ------------------------------------------------------------------------
+        -- TEST 6: Verifikasi perubahan enable di tengah periode carrier
+        -- Lebar periode carrier wajib konstan tepat 250 siklus tanpa terpotong
+        ------------------------------------------------------------------------
+        report "Menjalankan Test 6: Verifikasi enable berubah di tengah periode carrier...";
+
+        enable <= '1';
+        sample_in <= x"FF";
+        wait until sample_req = '1';
+        wait until rising_edge(clk);
+
+        -- Tunggu awal periode carrier baru
+        wait until rising_edge(pwm_out);
+        prev_edge := now;
+
+        -- Ubah enable = '0' di tengah periode (setelah 60 siklus clock)
+        wait for 60 * CLK_PERIOD;
+        enable <= '0';
+
+        -- Tunggu pulsa berikutnya dan pastikan periode tetap tepat 250 siklus (2500 ns)
+        wait until rising_edge(pwm_out);
+        cur_edge := now;
+        period_time := cur_edge - prev_edge;
+        assert period_time = CARRIER_CYCLES * CLK_PERIOD
+            report "GAGAL [Test 6]: Periode carrier terpotong saat enable='0'! Terukur " &
+                   time'image(period_time) & " != " & time'image(CARRIER_CYCLES * CLK_PERIOD)
+            severity failure;
+
+        -- Ukur duty periode berikutnya saat enable='0' aktif (wajib tepat 125 siklus)
+        high_cycles := 0;
+        for i in 0 to CARRIER_CYCLES - 1 loop
+            wait until rising_edge(clk);
+            if pwm_out = '1' then
+                high_cycles := high_cycles + 1;
+            end if;
+        end loop;
+        assert high_cycles = 125
+            report "GAGAL [Test 6]: Duty setelah disable tidak 125 siklus (terukur " &
+                   integer'image(high_cycles) & ")!"
+            severity failure;
+
+        -- Ubah kembali enable = '1' di tengah periode (setelah 70 siklus)
+        prev_edge := now;
+        wait for 70 * CLK_PERIOD;
+        enable <= '1';
+
+        wait until rising_edge(pwm_out);
+        cur_edge := now;
+        period_time := cur_edge - prev_edge;
+        assert period_time = CARRIER_CYCLES * CLK_PERIOD
+            report "GAGAL [Test 6]: Periode carrier terpotong saat enable='1'! Terukur " &
+                   time'image(period_time) & " != " & time'image(CARRIER_CYCLES * CLK_PERIOD)
+            severity failure;
+
+        report "Test 6 LULUS: Perubahan enable di tengah periode tidak memotong lebar periode 250 siklus.";
+
+        ------------------------------------------------------------------------
+        -- TEST 7: Verifikasi perubahan sample_in di antara tick sampel
+        -- Perubahan sample_in di tengah tick tidak boleh memengaruhi duty tick berjalan
+        ------------------------------------------------------------------------
+        report "Menjalankan Test 7: Verifikasi perubahan sample_in di antara tick...";
+
+        -- Pasang sample 0x00
+        enable <= '1';
+        wait until sample_req = '1';
+        wait until rising_edge(clk);
+        sample_in <= x"00";
+
+        -- Tunggu latch tick sampel 0x00
+        wait until sample_req = '1';
+        wait until rising_edge(clk);
+
+        -- Di tengah-tengah tick sampel (misal siklus 500), ubah sample_in menjadi 0xFF
+        wait for 500 * CLK_PERIOD;
+        sample_in <= x"FF";
+
+        -- Ukur sisa siklus dari tick sampel yang sedang berjalan (12.000 siklus tersisa)
+        high_cycles := 0;
+        while sample_req = '0' loop
+            wait until rising_edge(clk);
+            if pwm_out = '1' then
+                high_cycles := high_cycles + 1;
+            end if;
+        end loop;
+
+        -- Sisa tick berjalan wajib tetap 0 siklus HIGH (sample 0x00 tidak terganggu 0xFF)
+        assert high_cycles = 0
+            report "GAGAL [Test 7]: Perubahan sample_in di antara tick memengaruhi duty berjalan (" &
+                   integer'image(high_cycles) & " siklus HIGH terdeteksi, diharapkan 0)!"
+            severity failure;
+
+        -- Sekarang pada tick baru, sample_in=0xFF harus tercuplik
+        wait until rising_edge(clk); -- masuk ke tick baru
+        high_cycles := 0;
+        for s in 0 to SAMPLE_CYCLES - 1 loop
+            wait until rising_edge(clk);
+            if pwm_out = '1' then
+                high_cycles := high_cycles + 1;
+            end if;
+        end loop;
+        expected_high := 50 * ((255 * CARRIER_CYCLES) / 256); -- 50 * 249 = 12450
+        assert high_cycles = expected_high
+            report "GAGAL [Test 7]: Sample 0xFF pada tick baru tidak menghasilkan " &
+                   integer'image(expected_high) & " siklus HIGH (terukur " &
+                   integer'image(high_cycles) & ")!"
+            severity failure;
+
+        report "Test 7 LULUS: Perubahan sample_in di antara tick tidak memengaruhi duty tick berjalan.";
+
+        ------------------------------------------------------------------------
+        -- TEST 8: Verifikasi ketepatan siklus pencuplikan sample_in (1-cycle precision)
+        ------------------------------------------------------------------------
+        report "Menjalankan Test 8: Verifikasi ketepatan siklus pencuplikan sample_in...";
+
+        enable <= '1';
+        wait until sample_req = '1';
+        wait until rising_edge(clk);
+        sample_in <= x"20"; -- S_A (duty 31)
+
+        -- Tunggu sampai siklus 12.498 (2 siklus sebelum tick baru)
+        wait for (SAMPLE_CYCLES - 3) * CLK_PERIOD;
+        wait until rising_edge(clk); -- sekarang sample_cnt = 12.498, sample_in = x"20" (S_A)
+
+        wait until rising_edge(clk); -- sekarang sample_cnt = 12.499
+        sample_in <= x"80"; -- S_B (tepat 1 siklus sebelum sample_req aktif)
+
+        wait until rising_edge(clk); -- sekarang sample_cnt = 0, sample_req = '1'
+        sample_in <= x"FF"; -- S_C (tepat 1 siklus setelah sample_req aktif)
+
+        -- Ukur 1 periode carrier pertama dari tick baru
+        high_cycles := 0;
+        for i in 0 to CARRIER_CYCLES - 1 loop
+            wait until rising_edge(clk);
+            if pwm_out = '1' then
+                high_cycles := high_cycles + 1;
+            end if;
+        end loop;
+
+        assert high_cycles = 125
+            report "GAGAL [Test 8]: Pencuplikan sample_in tidak tepat pada siklus sample_req! " &
+                   "Terukur " & integer'image(high_cycles) & " siklus HIGH (diharapkan 125 dari S_B). " &
+                   "Jika terukur 31 -> tercuplik 1 siklus lebih awal (S_A). " &
+                   "Jika terukur 249 -> tercuplik 1 siklus lebih lambat (S_C)."
+            severity failure;
+
+        report "Test 8 LULUS: Pencuplikan sample_in terbukti tepat 1-siklus selaras dengan sample_req.";
+
+        ------------------------------------------------------------------------
         -- RINGKASAN AKHIR
         ------------------------------------------------------------------------
         report "================================================================";

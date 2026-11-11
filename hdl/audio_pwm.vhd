@@ -49,6 +49,10 @@ architecture rtl of audio_pwm is
     signal carrier_cnt : integer range 0 to CARRIER_CYCLES - 1 := 0;
     signal sample_cnt  : integer range 0 to SAMPLE_CYCLES - 1  := 0;
 
+    -- Register penahan sampel dan enable (selaras batas periode)
+    signal sample_reg  : std_logic_vector(7 downto 0) := x"80";
+    signal enable_reg  : std_logic := '1';
+
 begin
 
     -- Proses utama synchronous clock
@@ -61,10 +65,13 @@ begin
                 sample_cnt  <= 0;
                 sample_req  <= '0';
                 pwm_out     <= '0';
+                sample_reg  <= x"80";
+                enable_reg  <= '1';
             else
                 -- 1. Pencacah Carrier PWM (Modulo 250 siklus = 400 kHz)
                 if carrier_cnt = CARRIER_CYCLES - 1 then
                     carrier_cnt <= 0;
+                    enable_reg  <= enable; -- Selaraskan perubahan enable ke batas periode carrier
                 else
                     carrier_cnt <= carrier_cnt + 1;
                 end if;
@@ -73,16 +80,17 @@ begin
                 if sample_cnt = SAMPLE_CYCLES - 1 then
                     sample_cnt <= 0;
                     sample_req <= '1';
+                    sample_reg <= sample_in; -- Cuplik sample_in tepat di batas tick sampel
                 else
                     sample_cnt <= sample_cnt + 1;
                     sample_req <= '0';
                 end if;
 
                 -- 3. Perhitungan Ambang Duty Cycle (Varian B)
-                if enable = '0' then
+                if enable_reg = '0' then
                     v_duty := MID_DUTY;
                 else
-                    v_duty := (to_integer(unsigned(sample_in)) * CARRIER_CYCLES) / 256;
+                    v_duty := (to_integer(unsigned(sample_reg)) * CARRIER_CYCLES) / 256;
                 end if;
 
                 -- 4. Pembangkitan Sinyal Keluaran PWM Ter-register
