@@ -34,21 +34,21 @@ Untuk menghasilkan clock yang stabil dengan pembagi biner genap tanpa jitter, di
 $$\text{DIVIDER} = 16 \implies f_{\text{SCLK}} = \frac{100\text{ MHz}}{16} = 6,25\text{ MHz}$$
 Periode clock `SCLK` adalah $T_{\text{SCLK}} = 160\text{ ns}$ (lebar pulsa HIGH 80 ns, LOW 80 ns).
 
-#### B. Evaluasi Karakteristik Timing AC (Datasheet SSD1306 Rev 1.1 vs FSM SPI Usulan) [DIVERIFIKASI: `ssd1306_raw.txt`]
-Berikut adalah perbandingan parameter timing AC resmi dari lembar data Solomon Systech SSD1306 Rev 1.1 terhadap perancangan FSM master SPI FPGA pada modul `oled_spi.vhd`:
+#### B. Evaluasi Karakteristik Timing AC (Datasheet SSD1306 Rev 1.1 vs FSM SPI Usulan) [TIDAK TERVERIFIKASI: pengguna belum membaca tabel timing SPI 4-kabel dari `ssd1306_cmd_blocks.txt`]
+Berikut adalah perbandingan parameter timing AC dari dokumen Solomon Systech SSD1306 terhadap perancangan FSM master SPI FPGA pada modul `oled_spi.vhd`. Sesuai keputusan tim pada Bagian 4n, seluruh rujukan dan batas parameter timing AC ditandai sebagai **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)**:
 
-| Simbol Parameter | Nama Parameter Timing | Batas Datasheet (Rev 1.1) | Halaman & Judul Tabel di `ssd1306_raw.txt` | Karakteristik FSM Master SPI FPGA (Clock 100 MHz, SCLK 6,25 MHz) | Dipenuhi? | Margin |
+| Simbol Parameter | Nama Parameter Timing | Batas Datasheet (Rev 1.1) | Halaman & Judul Tabel di `ssd1306_raw.txt` | Karakteristik FSM Master SPI FPGA (Clock 100 MHz, SCLK 6,25 MHz) | Status Verifikasi Datasheet | Margin |
 |---|---|:---:|---|---|:---:|:---:|
-| `tcycle` | Clock Cycle Time | Min $100\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Periode $T_{\text{SCLK}} = 160\text{ ns}$ (16 siklus clock 100 MHz). | **YA** | $+60\%$ |
-| `tCLKL` | Clock Low Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Pulsa LOW `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **YA** | $+300\%$ |
-| `tCLKH` | Clock High Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Pulsa HIGH `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **YA** | $+300\%$ |
-| `tCSS` | Chip Select Setup Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `CS#` di-assert LOW minimal 3 siklus clock ($30\text{ ns}$) sebelum tepi pertama `SCLK`. | **YA** | $+50\%$ |
-| `tCSH` | Chip Select Hold Time | Min $10\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `CS#` ditahan LOW minimal 3 siklus clock ($30\text{ ns}$) setelah tepi terakhir `SCLK` sebelum de-asersi ke HIGH. | **YA** | $+200\%$ |
-| `tAS` | Address Setup Time (`D/C#`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `D/C#` disetel bersamaan dengan `CS#` assert, mendahului tepi naik `SCLK` pertama minimal 3 siklus ($30\text{ ns}$). | **YA** | $+100\%$ |
-| `tAH` | Address Hold Time (`D/C#`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `D/C#` dipertahankan stabil setelah tepi turun `SCLK` minimal 8 siklus clock = $80\text{ ns}$ sebelum perubahan state. | **YA** | $+433\%$ |
-| `tDSW` | Write Data Setup Time (`SDIN`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Data `MOSI` disiapkan pada tepi turun `SCLK`, memberikan setup time 8 siklus clock = $80\text{ ns}$ terhadap tepi naik berikutnya. | **YA** | $+433\%$ |
-| `tDHW` | Write Data Hold Time (`SDIN`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Data `MOSI` dipertahankan stabil selama fase HIGH = 8 siklus clock = $80\text{ ns}$ hingga tepi turun berikutnya. | **YA** | $+433\%$ |
-| `RES#` | Reset Low Pulse Width | Min $3\ \mu\text{s}$ | Hal. 49, Table 13-1: AC Characteristics | Pulsa reset hardware LOW dibangkitkan selama 1.000 siklus clock 100 MHz = $10\ \mu\text{s}$. | **YA** | $+233\%$ |
+| `tcycle` | Clock Cycle Time | Min $100\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Periode $T_{\text{SCLK}} = 160\text{ ns}$ (16 siklus clock 100 MHz). | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+60\%$ |
+| `tCLKL` | Clock Low Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Pulsa LOW `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+300\%$ |
+| `tCLKH` | Clock High Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Pulsa HIGH `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+300\%$ |
+| `tCSS` | Chip Select Setup Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `CS#` di-assert LOW minimal 3 siklus clock ($30\text{ ns}$) sebelum tepi pertama `SCLK`. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+50\%$ |
+| `tCSH` | Chip Select Hold Time | Min $10\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `CS#` ditahan LOW minimal 3 siklus clock ($30\text{ ns}$) setelah tepi terakhir `SCLK` sebelum de-asersi ke HIGH. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+200\%$ |
+| `tAS` | Address Setup Time (`D/C#`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `D/C#` disetel bersamaan dengan `CS#` assert, mendahului tepi naik `SCLK` pertama minimal 3 siklus ($30\text{ ns}$). | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+100\%$ |
+| `tAH` | Address Hold Time (`D/C#`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `D/C#` dipertahankan stabil setelah tepi turun `SCLK` minimal 8 siklus clock = $80\text{ ns}$ sebelum perubahan state. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+433\%$ |
+| `tDSW` | Write Data Setup Time (`SDIN`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Data `MOSI` disiapkan pada tepi turun `SCLK`, memberikan setup time 8 siklus clock = $80\text{ ns}$ terhadap tepi naik berikutnya. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+433\%$ |
+| `tDHW` | Write Data Hold Time (`SDIN`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Data `MOSI` dipertahankan stabil selama fase HIGH = 8 siklus clock = $80\text{ ns}$ hingga tepi turun berikutnya. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+433\%$ |
+| `RES#` | Reset Low Pulse Width | Min $3\ \mu\text{s}$ | Hal. 49, Table 13-1: AC Characteristics | Pulsa reset hardware LOW dibangkitkan selama 1.000 siklus clock 100 MHz = $10\ \mu\text{s}$. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+233\%$ |
 
 ### 1.3 Analisis Anggaran Waktu Transfer per Frame (Frame Budget)
 - **Ukuran Data Grafis Layar 128×64:**
@@ -76,30 +76,30 @@ Modul hardware `oled_spi.vhd` akan mengimplementasikan State Machine (FSM) inisi
 3. **Pengiriman Urutan Perintah Konfigurasi:** Dikirim secara serial dengan sinyal `DC = 0` dan `CS = 0`.
 4. **Display ON:** Perintah `0xAF` dikirim di akhir urutan konfigurasi untuk menghidupkan panel layar.
 
-#### B. Tabel Perintah Inisialisasi Register SSD1306 Byte demi Byte [DIVERIFIKASI: `ssd1306_raw.txt`]
+#### B. Tabel Perintah Inisialisasi Register SSD1306 Byte demi Byte [TIDAK TERVERIFIKASI: menunggu pembacaan pengguna dari `ssd1306_cmd_blocks.txt`]
 
-Tabel berikut memvalidasi setiap byte perintah konfigurasi inisialisasi FSM modul `oled_spi.vhd` secara langsung terhadap teks lembar data Solomon Systech SSD1306 Rev 1.1 (`ssd1306_raw.txt`):
+Tabel berikut mencantumkan setiap byte perintah konfigurasi inisialisasi FSM modul `oled_spi.vhd`. Sesuai aturan Bagian 4n, seluruh status kutipan teks lembar data ditandai sebagai **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)**, kecuali nilai parameter VCOMH (`0x00`, `0x20`, `0x30`) yang telah diverifikasi oleh pengguna:
 
-| No | Byte (Hex) | Arti / Fungsi Register | Halaman & Judul Tabel di `ssd1306_raw.txt` | Kutipan Literal ($\le 10$ kata) | Status |
-|---|---|---|---|---|---|
-| 1 | `0xAE` | Display OFF (Sleep Mode) | Hal. 28, Table 9-1: 1. Fundamental Command Table | "Display OFF (sleep mode)" | **DITEMUKAN DI PDF** |
-| 2 | `0xD5`, `0x80` | Set Display Clock Divide Ratio & Oscillator Frequency | Hal. 32, Table 9-1: 5. Timing & Driving Scheme Setting Command Table | "Set Display Clock Divide Ratio/Oscillator Frequency" | **DITEMUKAN DI PDF** |
-| 3 | `0xA8`, `0x3F` | Set Multiplex Ratio (64MUX) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "Set MUX ratio to N+1 MUX" | **DITEMUKAN DI PDF** |
-| 4 | `0xD3`, `0x00` | Set Display Offset (Offset 0) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "Set vertical shift by COM from 0d~63d" | **DITEMUKAN DI PDF** |
-| 5 | `0x40` | Set Display Start Line (Line 0) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "Set display RAM display start line register" | **DITEMUKAN DI PDF** |
-| 6 | `0x8D`, `0x14` | Charge Pump Setting (Enable 7,5V) | Tidak ada di PDF Rev 1.1 (Pin VBAT, C1N, C1P, C2N, C2P terdaftar) | "TIDAK TERVERIFIKASI (dokumen Rev 1.1 tidak memuat opcode 8Dh)" | **TIDAK TERVERIFIKASI \| KONVENSI PUSTAKA** |
-| 7 | `0x20`, `0x00` | Set Memory Addressing Mode (Horizontal Addressing) | Hal. 30, Table 9-1: 3. Addressing Setting Command Table | "A[1:0] = 00b, Horizontal Addressing Mode" | **DITEMUKAN DI PDF** |
-| 8 | `0xA1` | Set Segment Re-map (Kolom 127 ke SEG0) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "column address 127 is mapped to SEG0" | **DITEMUKAN DI PDF** |
-| 9 | `0xC8` | Set COM Output Scan Direction (COM[N-1] ke COM0) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "remapped mode. Scan from COM[N-1] to COM0" | **DITEMUKAN DI PDF** |
-| 10 | `0xDA`, `0x12` | Set COM Pins Hardware Configuration (Alternative PIN, Disable L/R Remap) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table & Hal. 40, Table 10-3 | "Alternative COM pin configuration (RESET)" | **DITEMUKAN DI PDF** |
-| 11 | `0x81`, `0xCF` | Set Contrast Control (Tingkat kontras tinggi `0xCF`) | Hal. 28, Table 9-1: 1. Fundamental Command Table | "contrast increases as the value increases" | **DITEMUKAN DI PDF** (perintah `81h` reset `7Fh`; nilai `CFh` konvensi pustaka) |
-| 12 | `0xD9`, `0xF1` | Set Pre-charge Period (Phase 1 = 1 DCLK, Phase 2 = 15 DCLK) | Hal. 32, Table 9-1: 5. Timing & Driving Scheme Setting Command Table | "Phase 1 period... Phase 2 period" | **DITEMUKAN DI PDF** (perintah `D9h` reset `22h`; nilai `F1h` konvensi pustaka) |
-| 13 | `0xDB`, `0x20` | Set VCOMH Deselect Level (~0,77 × VCC) | Hal. 32, Table 9-1: 5. Timing & Driving Scheme Setting Command Table | "010b 20h ~ 0.77 x VCC (RESET)" | **DITEMUKAN DI PDF** |
-| 14 | `0xA4` | Entire Display ON (Resume to RAM Content) | Hal. 28, Table 9-1: 1. Fundamental Command Table | "Resume to RAM content display (RESET)" | **DITEMUKAN DI PDF** |
-| 15 | `0xA6` | Set Normal Display | Hal. 28, Table 9-1: 1. Fundamental Command Table | "A6h, X[0]=0b: Normal display (RESET)" | **DITEMUKAN DI PDF** |
-| 16 | `0xAF` | Display ON (Normal Mode) | Hal. 28, Table 9-1: 1. Fundamental Command Table | "Display ON in normal mode" | **DITEMUKAN DI PDF** |
-| 17 | `0x21`, `0x00`, `0x7F` | Set Column Address (Rentang kolom $0..127$) | Hal. 30, Table 9-1: 3. Addressing Setting Command Table | "Setup column start and end address" | **DITEMUKAN DI PDF** |
-| 18 | `0x22`, `0x00`, `0x07` | Set Page Address (Rentang halaman $0..7$) | Hal. 31, Table 9-1: 3. Addressing Setting Command Table | "Setup page start and end address" | **DITEMUKAN DI PDF** |
+| No | Byte (Hex) | Arti / Fungsi Register | Rujukan Tabel & Konteks Perintah | Status Verifikasi Datasheet (Bagian 4n) |
+|---|---|---|---|---|
+| 1 | `0xAE` | Display OFF (Sleep Mode) | Fundamental Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 2 | `0xD5`, `0x80` | Set Display Clock Divide Ratio & Oscillator Frequency | Timing & Driving Scheme Setting Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 3 | `0xA8`, `0x3F` | Set Multiplex Ratio (64MUX) | Hardware Configuration Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 4 | `0xD3`, `0x00` | Set Display Offset (Offset 0) | Hardware Configuration Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 5 | `0x40` | Set Display Start Line (Line 0) | Hardware Configuration Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 6 | `0x8D`, `0x14` | Charge Pump Setting (Enable 7,5V) | Tidak ada di PDF Rev 1.1 (Pin VBAT, C1N..C2P terdaftar) | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 7 | `0x20`, `0x00` | Set Memory Addressing Mode (Horizontal Addressing) | Addressing Setting Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 8 | `0xA1` | Set Segment Re-map (Kolom 127 ke SEG0) | Hardware Configuration Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 9 | `0xC8` | Set COM Output Scan Direction (COM[N-1] ke COM0) | Hardware Configuration Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 10 | `0xDA`, `0x12` | Set COM Pins Hardware Configuration (Alternative PIN, Disable L/R Remap) | Hardware Configuration Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 11 | `0x81`, `0xCF` | Set Contrast Control (Tingkat kontras `0xCF`) | Fundamental Command Table (rentang 00h..FFh) | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 12 | `0xD9`, `0xF1` | Set Pre-charge Period (Phase 1 = 1 DCLK, Phase 2 = 15 DCLK) | Timing & Driving Scheme Setting Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 13 | `0xDB`, `0x20` | Set VCOMH Deselect Level (~0,77 x VCC) | Timing & Driving Scheme Setting Command Table | **DIVERIFIKASI (nilai 00h/20h/30h telah dikonfirmasi pengguna; kutipan literal menunggu pembacaan ssd1306_cmd_blocks.txt)** |
+| 14 | `0xA4` | Entire Display ON (Resume to RAM Content) | Fundamental Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 15 | `0xA6` | Set Normal Display | Fundamental Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 16 | `0xAF` | Display ON (Normal Mode) | Fundamental Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 17 | `0x21`, `0x00`, `0x7F` | Set Column Address (Rentang kolom $0..127$) | Addressing Setting Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 18 | `0x22`, `0x00`, `0x07` | Set Page Address (Rentang halaman $0..7$) | Addressing Setting Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
 
 #### C. Catatan Khusus Verifikasi & Koreksi Register
 
@@ -418,6 +418,76 @@ Terdapat tiga opsi arsitektur framing audio streaming:
   - `cnt_audio_overflow`: Pencacah kejadian paket audio tiba saat kapasitas FIFO ($2.048\text{ B}$) penuh.
   - `cnt_audio_drop`: Pencacah jumlah sampel yang dibuang saat High Watermark (>80% / 1.638 B) aktif secara persisten.
   - `cnt_audio_repeat`: Pencacah jumlah sampel yang diulang saat Low Watermark (<20% / 410 B) aktif secara persisten.
+
+### 3.5 Model Sinkronisasi Audio Jalur A2, Invarian Host Catch-up, & Protokol Tulis FIFO
+
+#### A. Model Matematis Aliran Audio ($S, C, L$) & Ambang Pre-roll
+- **Definisi Variabel Status Aliran:**
+  - $S(t)$: Jumlah total sampel audio yang berhasil dikirim oleh Host PC dan masuk ke FIFO audio FPGA sejak awal pemutaran ($t_0$).
+  - $C(t)$: Jumlah total sampel audio yang telah diputar (dikonsumsi) oleh modulator audio PWM hardware FPGA sejak awal pemutaran ($t_0$).
+  - $L(t) = S(t) - C(t)$: Tingkat keterisian (*occupancy level*) buffer audio FIFO pada waktu $t$ (dalam satuan byte/sampel).
+- **Syarat Kesinkronan Sempurna Audio terhadap Video:**
+  Laju audio nominal adalah $8.000\text{ Hz}$ ($1\text{ sampel per } 125\ \mu\text{s}$), selaras dengan video 30 FPS ($266,666\dots\text{ sampel per frame}$). Aliran audio berada dalam kondisi **sinkron sempurna dengan video** jika dan hanya jika:
+  $$C(t) = 8.000 \times (t - t_0)$$
+  Selama buffer tidak underflow ($L(t) > 0$), $C(t)$ bertambah kontinu tepat $8.000\text{ sampel/detik}$ berdasarkan clock osilator 100 MHz Basys 3. Fluktuasi $L(t)$ akibat variasi interval kirim PC sama sekali tidak memengaruhi laju pemutaran $C(t)$ selama $L(t) > 0$.
+- **Syarat Awal Pemutaran (Pre-roll Lead Time 1.024 Sampel):**
+  - Modul hardware `audio_fifo.vhd` menahan status `playing = '0'` dan menyajikan level hening `0x80` sampai tingkat keterisian buffer mencapai ambang batas pre-roll:
+    $$L(t) \ge 1.024\text{ Byte}$$
+  - Oleh karena itu, Host PC **WAJIB** mengirimkan minimal 1.024 sampel audio awal sebelum atau tepat saat frame video 0 dipicu.
+  - Dengan pola paket streaming audio 3 frame ($267, 267, 266\text{ Byte}$), pengiriman 4 paket awal menghasilkan total:
+    $$267 + 267 + 266 + 267 = 1.067\text{ Byte} \ge 1.024\text{ Byte}$$
+    sehingga fase pre-roll tuntas tepat saat frame video pertama dimulai.
+
+#### B. Invarian Host Catch-up
+- **Aturan Integritas Paket Audio Host:**
+  Host PC **DILARANG MEMBUANG PAKET AUDIO** (*no host audio drop*). Paket audio tidak pernah di-skip atau di-drop di sisi perangkat lunak PC selama pemutaran normal.
+- **Invarian Pemulihan Pasca-Jeda Transmisi:**
+  Jika terjadi penundaan (*stall* / jeda pengiriman) pada Host PC akibat penjadwalan OS, garbage collection, atau variasi I/O:
+  1. Selama jeda transmisi, pengiriman paket audio tertunda sesaat.
+  2. Begitu jeda berakhir, Host PC **WAJIB** mentransmisikan seluruh paket audio yang tertunda secara berurutan dan beruntun (*burst*) pada kecepatan penuh UART 921.600 baud tanpa jeda artifisial, hingga antrean host kembali menyusul (*catch-up*).
+  3. Transmisi burst ini memulihkan level FIFO $L(t)$ kembali ke titik kerja nominal ($1.024\text{ Byte}$) dalam waktu sangat singkat ($< 10\text{ ms}$ untuk jeda $100\text{ ms}$) tanpa menggeser timeline $C(t)$.
+
+#### C. Dampak Jeda Transmisi Tanpa Burst terhadap Slip Bawah (Phase Shift Calculation)
+Misalkan terjadi jeda transmisi sesaat sebesar $T_{\text{stall}} = 100\text{ ms}$ di mana Host PC **TIDAK** melakukan burst catch-up (hanya melanjutkan pengiriman pada laju nominal 8.000 Hz):
+1. **Penurunan Level FIFO:**
+   Selama $100\text{ ms}$, konsumsi FPGA $C(t)$ berjalan terus menghabiskan:
+   $$\Delta C = 100\text{ ms} \times 8\text{ sampel/ms} = 800\text{ sampel}$$
+   Level buffer turun dari titik nominal $1.024\text{ Byte}$ ke:
+   $$L = 1.024 - 800 = \mathbf{224\text{ Byte}}$$
+2. **Aktivasi Logika Low Slip (Repeat):**
+   Karena $L = 224 < 410$ (ambang batas low watermark $20\%$), kondisi low slip terpenuhi. Jika level ini bertahan secara kontinu selama $\tau_{\text{dwell}} \ge 3\text{ detik}$, modul `audio_fifo` mengaktifkan `slip_low_mode = '1'`.
+3. **Kompensasi Slip Lambat:**
+   Dalam mode repeat slip, FPGA mengulang 1 sampel (tidak memajukan `r_ptr`) paling banyak 1 kali setiap $\tau_{\text{SLIP\_MIN}} = 50\text{ ms}$ (laju 20 sampel/detik).
+   Pengulangan sampel menaikkan level buffer secara perlahan hingga mencapai ambang batas keluar histeresis:
+   $$L_{\text{exit}} = \mathbf{512\text{ Byte}}$$
+4. **Perhitungan Jumlah Sampel Diulang & Pergeseran Fasa Audio (Lag):**
+   Jumlah sampel yang harus diulang untuk menaikkan buffer dari 224 ke 512 adalah:
+   $$\Delta L = 512 - 224 = \mathbf{288\text{ sampel}}$$
+   Setiap sampel yang diulang menahan penambahan $C(t)$ selama 1 periode sampel ($125\ \mu\text{s}$), sehingga menggeser fasa audio mundur terhadap video:
+   $$\Delta t_{\text{shift}} = 288 \times 125\ \mu\text{s} = 288 \times 0,000125\text{ s} = \mathbf{0,036\text{ detik}} = \mathbf{36\text{ ms}}$$
+   Waktu yang dibutuhkan FPGA untuk pemulihan lambat ini adalah:
+   $$T_{\text{recovery}} = 288 \times 50\text{ ms} = 14.400\text{ ms} = \mathbf{14,4\text{ detik}}$$
+   *Kesimpulan Teknis:* Jika PC tidak melakukan burst catch-up dan mengandalkan slip bawah untuk memulihkan buffer, audio akan mengalami **pergeseran fasa (desinkronisasi permanen) sebesar persis $36\text{ ms}$** terhadap video. Hal ini menegaskan mengapa invarian burst catch-up pada Host PC wajib dipatuhi.
+
+#### D. Protokol Jabat Tangan Tulis & Analisis Hazard Waktu (Berdasarkan Hasil Uji C.4)
+Berdasarkan hasil pengujian empiris timing protokol pada `tb_audio_fifo` (Test 10):
+1. **Aturan `wr_start`:**
+   Sinyal `wr_start` wajib berupa pulsa aktif HIGH tepat 1 siklus clock mendahului byte `wr_valid` pertama, bersamaan dengan nilai `wr_len` yang valid. Hal ini memberi waktu bagi register `reject_latch` untuk aktif pada siklus berikutnya jika ruang bebas tidak mencukupi.
+2. **Aturan Jeda `wr_commit` (Wajib Minimal 1 Siklus):**
+   Sinyal pengesahan paket `wr_commit` **WAJIB DIBERIKAN MINIMAL 1 SIKLUS CLOCK SETELAH `wr_valid` TERAKHIR** (`wr_valid <= '0'`, tunggu 1 siklus clock, lalu `wr_commit <= '1'`).
+   *Hazard Jika Bersamaan (Empirical Hazard):*
+   Jika `wr_commit` di-assert pada siklus clock yang persis sama dengan `wr_valid` terakhir:
+   Di dalam proses sekuensial synchronous, `w_spec <= w_spec + 1` dan `w_commit <= w_spec` dievaluasi serentak. Register `w_commit` mengambil nilai `w_spec` saat itu (sebelum inkremen byte terakhir berlaku). Akibatnya, **byte terakhir paket hilang dari commit** (tercatat level hanya bertambah $N-1$ bukan $N$). Oleh karena itu, pengirim wajib memberikan jeda 1 siklus clock.
+
+#### E. Perilaku Sinyal `wr_reject` & Proteksi Kapasitas BRAM
+1. **Evaluasi Kombinasional:**
+   Keluaran `wr_reject` dievaluasi secara kombinasional instan saat `wr_start = '1'`:
+   $$\text{wr\_reject} = '1' \iff (2.048 - \text{level\_spec}) < \text{wr\_len}$$
+   Sinyal ini langsung bernilai '1' pada siklus yang sama dengan `wr_start`, memungkinkan logika pengirim mendeteksi penolakan secara instan.
+2. **Penguncian Sekuensial (`reject_latch`) & Telemetri:**
+   Pada siklus berikutnya, register internal `reject_latch <= '1'` aktif dan pencacah telemetri saturasi 16-bit `cnt_overflow` bertambah (+1). Selama `reject_latch = '1'`, penulisan spekulatif ke BRAM diblokir total (`mem` tidak diubah, `w_spec` tidak bertambah).
+3. **Penyelesaian Transaksi:**
+   Ketika paket yang ditolak selesai, parser mengasertifkan `wr_commit` atau `wr_rollback`, yang secara otomatis mereset `reject_latch <= '0'` dan mengembalikan `w_spec <= w_commit`, menjaga integritas memori BRAM tanpa data korup.
 
 ## 4. Alokasi Pin PMOD (Rencana Pinout `basys3.xdc`)
 
