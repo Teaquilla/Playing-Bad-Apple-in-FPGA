@@ -37,18 +37,18 @@ Periode clock `SCLK` adalah $T_{\text{SCLK}} = 160\text{ ns}$ (lebar pulsa HIGH 
 #### B. Evaluasi Karakteristik Timing AC (Datasheet SSD1306 Rev 1.1 vs FSM SPI Usulan) [DIVERIFIKASI: `ssd1306_raw.txt`]
 Berikut adalah perbandingan parameter timing AC resmi dari lembar data Solomon Systech SSD1306 Rev 1.1 terhadap perancangan FSM master SPI FPGA pada modul `oled_spi.vhd`:
 
-| Simbol Parameter | Nama Parameter Timing | Batas Datasheet (Rev 1.1) | Halaman & Judul Tabel di `ssd1306_raw.txt` | Karakteristik FSM Master SPI FPGA (Clock 100 MHz, SCLK 6,25 MHz) | Dipenuhi? |
-|---|---|---|---|---|---|
-| $t_{\text{cycle}}$ | Clock Cycle Time | Min $100\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Periode $T_{\text{SCLK}} = 160\text{ ns}$ (16 siklus clock 100 MHz). | **YA** (margin $+60\%$) |
-| $t_{\text{CLKL}}$ | Clock Low Pulse Width | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Pulsa LOW `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **YA** (margin $+300\%$) |
-| $t_{\text{CLKH}}$ | Clock High Pulse Width | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Pulsa HIGH `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **YA** (margin $+300\%$) |
-| $t_{\text{CSS}}$ ($t_{\text{CSSU}}$) | Chip Select Setup Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `CS` di-assert LOW minimal 2 siklus ($20\text{ ns}$) s.d. 1 periode `SCLK` ($160\text{ ns}$) sebelum tepi pertama `SCLK`. | **YA** |
-| $t_{\text{CSH}}$ | Chip Select Hold Time | Min $10\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `CS` ditahan LOW minimal 2 siklus ($20\text{ ns}$) s.d. 1 periode `SCLK` ($160\text{ ns}$) setelah tepi terakhir `SCLK` sebelum de-asersi ke HIGH. | **YA** |
-| $t_{\text{AS}}$ | Address Setup Time (`D/C#`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `D/C#` disetel bersamaan dengan `CS` assert, mendahului tepi naik `SCLK` pertama minimal $\ge 20\text{ ns}$ (hingga $160\text{ ns}$). | **YA** |
-| $t_{\text{AH}}$ | Address Hold Time (`D/C#`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `D/C#` dipertahankan stabil sepanjang seluruh frame/byte transmisi ($> 1,3\text{ ms} \gg 15\text{ ns}$). | **YA** |
-| $t_{\text{DSW}}$ | Write Data Setup Time (`SDIN`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Data `MOSI` disiapkan pada tepi turun `SCLK`, memberikan setup time 8 siklus clock = $80\text{ ns}$ terhadap tepi naik berikutnya. | **YA** (margin $+433\%$) |
-| $t_{\text{DHW}}$ | Write Data Hold Time (`SDIN`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Data `MOSI` dipertahankan stabil selama fase HIGH = 8 siklus clock = $80\text{ ns}$ hingga tepi turun berikutnya. | **YA** (margin $+433\%$) |
-| $t_{\text{RES}}$ | Reset Low Pulse Width | Min $3\ \mu\text{s}$ | Hal. 49, Table 13-1: AC Characteristics | Pulsa reset hardware LOW dibangkitkan selama 1.000 siklus clock 100 MHz = $10\ \mu\text{s}$. | **YA** (margin $+233\%$) |
+| Simbol Parameter | Nama Parameter Timing | Batas Datasheet (Rev 1.1) | Halaman & Judul Tabel di `ssd1306_raw.txt` | Karakteristik FSM Master SPI FPGA (Clock 100 MHz, SCLK 6,25 MHz) | Dipenuhi? | Margin |
+|---|---|:---:|---|---|:---:|:---:|
+| `tcycle` | Clock Cycle Time | Min $100\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Periode $T_{\text{SCLK}} = 160\text{ ns}$ (16 siklus clock 100 MHz). | **YA** | $+60\%$ |
+| `tCLKL` | Clock Low Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Pulsa LOW `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **YA** | $+300\%$ |
+| `tCLKH` | Clock High Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Pulsa HIGH `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **YA** | $+300\%$ |
+| `tCSS` | Chip Select Setup Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `CS#` di-assert LOW minimal 3 siklus clock ($30\text{ ns}$) sebelum tepi pertama `SCLK`. | **YA** | $+50\%$ |
+| `tCSH` | Chip Select Hold Time | Min $10\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `CS#` ditahan LOW minimal 3 siklus clock ($30\text{ ns}$) setelah tepi terakhir `SCLK` sebelum de-asersi ke HIGH. | **YA** | $+200\%$ |
+| `tAS` | Address Setup Time (`D/C#`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `D/C#` disetel bersamaan dengan `CS#` assert, mendahului tepi naik `SCLK` pertama minimal 3 siklus ($30\text{ ns}$). | **YA** | $+100\%$ |
+| `tAH` | Address Hold Time (`D/C#`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `D/C#` dipertahankan stabil setelah tepi turun `SCLK` minimal 8 siklus clock = $80\text{ ns}$ sebelum perubahan state. | **YA** | $+433\%$ |
+| `tDSW` | Write Data Setup Time (`SDIN`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Data `MOSI` disiapkan pada tepi turun `SCLK`, memberikan setup time 8 siklus clock = $80\text{ ns}$ terhadap tepi naik berikutnya. | **YA** | $+433\%$ |
+| `tDHW` | Write Data Hold Time (`SDIN`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Data `MOSI` dipertahankan stabil selama fase HIGH = 8 siklus clock = $80\text{ ns}$ hingga tepi turun berikutnya. | **YA** | $+433\%$ |
+| `RES#` | Reset Low Pulse Width | Min $3\ \mu\text{s}$ | Hal. 49, Table 13-1: AC Characteristics | Pulsa reset hardware LOW dibangkitkan selama 1.000 siklus clock 100 MHz = $10\ \mu\text{s}$. | **YA** | $+233\%$ |
 
 ### 1.3 Analisis Anggaran Waktu Transfer per Frame (Frame Budget)
 - **Ukuran Data Grafis Layar 128×64:**
@@ -87,7 +87,7 @@ Tabel berikut memvalidasi setiap byte perintah konfigurasi inisialisasi FSM modu
 | 3 | `0xA8`, `0x3F` | Set Multiplex Ratio (64MUX) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "Set MUX ratio to N+1 MUX" | **DITEMUKAN DI PDF** |
 | 4 | `0xD3`, `0x00` | Set Display Offset (Offset 0) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "Set vertical shift by COM from 0d~63d" | **DITEMUKAN DI PDF** |
 | 5 | `0x40` | Set Display Start Line (Line 0) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "Set display RAM display start line register" | **DITEMUKAN DI PDF** |
-| 6 | `0x8D`, `0x14` | Charge Pump Setting (Enable 7,5V) | Tidak ada di PDF Rev 1.1 | "Tidak ditemukan dalam dokumen Rev 1.1" | **TIDAK DITEMUKAN DI PDF \| KONVENSI PUSTAKA** |
+| 6 | `0x8D`, `0x14` | Charge Pump Setting (Enable 7,5V) | Tidak ada di PDF Rev 1.1 (Pin VBAT, C1N, C1P, C2N, C2P terdaftar) | "TIDAK TERVERIFIKASI (dokumen Rev 1.1 tidak memuat opcode 8Dh)" | **TIDAK TERVERIFIKASI \| KONVENSI PUSTAKA** |
 | 7 | `0x20`, `0x00` | Set Memory Addressing Mode (Horizontal Addressing) | Hal. 30, Table 9-1: 3. Addressing Setting Command Table | "A[1:0] = 00b, Horizontal Addressing Mode" | **DITEMUKAN DI PDF** |
 | 8 | `0xA1` | Set Segment Re-map (Kolom 127 ke SEG0) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "column address 127 is mapped to SEG0" | **DITEMUKAN DI PDF** |
 | 9 | `0xC8` | Set COM Output Scan Direction (COM[N-1] ke COM0) | Hal. 31, Table 9-1: 4. Hardware Configuration Command Table | "remapped mode. Scan from COM[N-1] to COM0" | **DITEMUKAN DI PDF** |
@@ -118,7 +118,8 @@ Tabel berikut memvalidasi setiap byte perintah konfigurasi inisialisasi FSM modu
    - *Rujukan Contoh Penggunaan `0x02` pada Datasheet:* Pada Halaman 40, Table 10-3 (*COM Pins Hardware Configuration*), Kondisi 1 dan Kondisi 2 menampilkan konfigurasi `DAh A[4]=0` (yaitu `0x02` jika `A[5]=0`). Contoh ini berlaku spesifik untuk panel 128×64 yang tata letak fisiknya memiliki pengkabelan pad COM berurutan secara blok (*Sequential COM pin configuration*, di mana COM0..COM31 berada di satu sisi dan COM32..COM63 di sisi sebaliknya), bukan layout interleaved.
 
 3. **Status Perintah Charge Pump Setting (`0x8D 0x14`):**
-   - Perintah `0x8D 0x14` sama sekali tidak ditemukan di dalam dokumen spesifikasi SSD1306 Rev 1.1. Perintah ini merupakan konvensi pustaka industri open-source (Adafruit SSD1306, U8g2) dan application note terpisah Solomon Systech untuk mengaktifkan rangkaian pengali tegangan internal 7,5V pada modul 0,96" 7-pin yang ditenagai murni dari catu 3,3V pin PMOD.
+   - Silikon chip SSD1306 memiliki pin fisik untuk rangkaian charge pump (pin `VBAT`, `C1N`, `C1P`, `C2N`, `C2P` secara eksplisit terdaftar pada deskripsi pin Rev 1.1 Halaman 15-16). Namun, perintah konfigurasinya (`0x8D 0x14`) dan urutan power-on pengaktifan pengali tegangan internal sama sekali tidak terdokumentasi di dalam lembar data dasar Rev 1.1 (April 2008).
+   - Berdasarkan KEPUTUSAN TIM 1 ("belum ada revisi baru"), status perintah `8Dh` dan urutan inisialisasi charge pump ditandai secara resmi sebagai **TIDAK TERVERIFIKASI**. Perintah ini dipertahankan sebagai konvensi modul industri komersial 0,96" 7-pin yang ditenagai 3,3V tunggal, namun memerlukan pengujian empiris langsung pada hardware fisik atau rujukan lembar data pelengkap (*Application Note / SSD1306B*).
 
 ### 1.5 Mekanisme Buffer Swap & Sinkronisasi Frame
 - Pembaruan tampilan OLED dilakukan tepat setelah frame baru selesai didekode ke BRAM frame buffer dan sinyal swap bank BRAM aktif [DIVERIFIKASI: konsep `swap_ready` pada `hdl/frame_buffer.vhd` baris 41].
@@ -250,6 +251,22 @@ Untuk mengubah deret pulsa PWM 400 kHz (atau 390,6 kHz) menjadi sinyal audio ana
   $$I_{\text{pin\_max}} = \frac{3,3\text{ V}}{2.200\ \Omega} \approx \mathbf{1,5\text{ mA}} \ll 8\text{ mA}$$
   Nilai 1,5 mA berada jauh di bawah batas kemampuan drive standar pin Artix-7 ($8\text{ mA}$), menjamin keselamatan kelistrikan pin PMOD Basys 3.
 - **Peringatan Verifikasi Perangkat Keras:** Nilai komponen $R = 2,2\text{ k}\Omega$ dan $C = 22\text{ nF}$ ini adalah **usulan desain [DIASUMSIKAN]**, **bukan nilai final**, dan **wajib diverifikasi oleh pengguna manusia sebelum rangkaian fisik dihubungkan ke board Basys 3**.
+
+#### D. Karakteristik Reset dan Lonjakan DC pada Kopling AC (Audio Pop) [TERBUKA]
+- **Kondisi Saat Reset:**
+  Pada implementasi `audio_pwm.vhd` saat ini, ketika `rst = '1'`, keluaran ter-register `pwm_out <= '0'`.
+- **Dampak pada Jalur Audio AC-Coupled:**
+  Kapasitor pemblokir DC pada rangkaian keluaran audio analog mengumpulkan muatan berdasarkan nilai tegangan rata-rata sinyal.
+  Ketika sistem berada dalam status reset, tegangan rata-rata adalah $0\text{ V}$.
+  Saat reset dilepaskan dan modul mulai menghasilkan sinyal modulasi audio pada duty nominal 50% ($125 / 250$ siklus), tegangan rata-rata seketika melompat menjadi:
+  $$V_{\text{DC}} = 3,3\text{ V} \times 50\% = 1,65\text{ V}$$
+  Langkah transien DC sebesar $\Delta V = +1,65\text{ V}$ ini diteruskan oleh kapasitor kopling AC ke penguat/earphone sebagai bunyi letupan tajam (*loud audio pop/thump*).
+- **Usulan Alternatif Mitigasi (Belum Diterapkan, Keputusan TERBUKA):**
+  1. *Alternatif 1 (Gating / Mute Switch Eksternal pada Top-Level):*
+     Menahan pin keluaran audio PMOD pada kondisi *high-impedance* (tri-state) atau menggunakan gerbang kendali *mute* analog di level atas sampai siklus pre-roll selesai dan buffer audio terisi stabil.
+  2. *Alternatif 2 (Duty 50% Selama Status Reset):*
+     Memodifikasi proses reset `audio_pwm.vhd` agar saat `rst = '1'`, modul tetap menghasilkan gelombang kotak carrier 400 kHz dengan duty cycle tepat 50% (125 siklus HIGH, 125 siklus LOW). Dengan demikian, tegangan DC rata-rata sudah berada di $1,65\text{ V}$ sejak reset aktif, sehingga tidak ada lonjakan DC ketika reset dilepas.
+- **Status Keputusan:** Tetap **TERBUKA** (tidak ada perubahan RTL yang diterapkan pada Bagian 4m).
 
 ### 3.3 Protokol Framing Streaming UART untuk Video & Audio
 
