@@ -3,7 +3,12 @@
 Dokumen ini merupakan proposal desain arsitektur untuk **Milestone 4 (M4)**, mencakup penambahan subsistem tampilan OLED SPI SSD1306 (128×64) dan subsistem output audio analog PWM 8-bit 8 kHz pada board Digilent Basys 3 (Xilinx Artix-7 `xc7a35tcpg236-1`).
 
 > [!NOTE]
-> Sesuai aturan pengembangan, seluruh rujukan terhadap kode, berkas, dan batasan implementasi yang ada ditandai sebagai **[DIVERIFIKASI]** (disertai kutipan nomor baris), sedangkan estimasi, spesifikasi perangkat keras eksternal yang belum diuji di board fisik, dan rencana arsitektur baru ditandai sebagai **[DIASUMSIKAN]**. Dokumen ini adalah proposal desain konseptual; tidak ada modul RTL, testbench, maupun berkas XDC baru yang diubah pada tahap ini.
+> Sesuai aturan pengembangan, seluruh rujukan terhadap kode, berkas, dan batasan implementasi yang ada ditandai sebagai **[DIVERIFIKASI]** (disertai kutipan nomor baris), sedangkan estimasi, spesifikasi perangkat keras eksternal yang belum diuji di board fisik, dan rencana arsitektur baru ditandai sebagai **[DIASUMSIKAN]**.
+> 
+> **Status Implementasi Modul Daun Audio (Bagian 4l):**
+> Modul daun `audio_pwm.vhd` (Varian B: carrier 250 siklus / 400 kHz, latch selaras periode) dan `audio_fifo.vhd` (FIFO BRAM 2048 B, speculative commit/rollback, underflow counter, slip dua arah) telah diimplementasikan dan diverifikasi lewat testbench unit `sim/tb_audio_pwm.vhd` dan `sim/tb_audio_fifo.vhd` (keduanya 100% PASS di Vivado xsim). Status: **Selesai pada simulasi; belum terintegrasi ke pipeline top-level / `packet_parser`; belum diuji di board fisik**.
+> Modul `oled_spi.vhd` tetap **DITUNDA** sampai pemeriksaan tabel inisialisasi selesai.
+> Keputusan D-16 (komponen fisik rangkaian filter audio) dan D-18 (resinkronisasi underflow) tetap berstatus **TERBUKA** (tidak ada opsi yang dipilih secara sepihak).
 
 ---
 

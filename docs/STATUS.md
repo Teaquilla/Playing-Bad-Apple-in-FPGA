@@ -13,7 +13,7 @@ Dokumen ringkasan eksekutif status terkini proyek, metrik implementasi, keputusa
 | **M2a** | Jalur Data Penerima Serial Streaming & Dekoder RLE (UART RX, FIFO 2KB, Parser, RLE Decoder) | **SELESAI** | 4 modul HDL lolos sintesis OOC (total 374 LUT, 320 FF, 1x RAMB18E1). 12 testbench xsim PASS (100%), termasuk tb_stream_rx byte-exact 90 frame & pengujian vektor galat. Integrasi ke top dijadwalkan pada M2b. |
 | **M2b** | Integrasi Top (`STREAMING_MODE`), Buffer Swap Tertunda, & Host Streamer PC | **tag m2b-boardless dibuat di aa81787 (2026-11-01); verifikasi independen pengguna 2026-11-01: sim_all.ps1 13 PASS dan pytest 44 lulus dijalankan pada tree yang python/stream_player.py-nya termodifikasi (belum di-commit); verifikasi Python pada tag persis: belum** | Seluruh 13 testbench xsim lolos (100% PASS), integrasi top.vhd streaming & delayed swap terverifikasi byte-exact 90 frame dan vektor galat. Catatan integritas berkas: tag `m2b-boardless` memuat `data/golden/ascii.bin` versi LF (93.870 B di git object store) [DIVERIFIKASI: `git cat-file -s`]; membutuhkan `core.autocrlf=true` di lingkungan Windows untuk menghasilkan 95.310 B [DIASUMSIKAN: butuh autocrlf=true untuk lulus]. Pada cabang `m3-wip`, `.gitattributes` telah dinormalisasi ke 95.310 B [DIVERIFIKASI]. |
 | **M3** | Output Audio PWM / PDM & Pengkabelan Mono | **penilaian pengguna, mata dan telinga: sinkron. Kondisi: laptop, --fake-fpga, --audio-hostapi wasapi --audio-discipline on, tanpa board/OLED/UART** | Jalur A1 (`audio_player.py`, sinkronisasi `AudioClock`, interpolasi, fallback stall) telah diimplementasikan; celah 1.470 sampel ada di timeline kontainer dan tidak diisi ffmpeg (WAV = 9.380 x 1.024 sampel kontigu); sampel ke-k (k >= 1.024) berada di waktu kontainer k/44100 + 33,33 ms; frame n di 33,33 ms + n/30; maka frame n sejajar WAV pada n/30 [DIASUMSIKAN]; default --av-offset-ms = 0 [DIASUMSIKAN]. Video tampil di terminal sekitar [waktu kirim paket + waktu keluaran ASCII ~11,5 ms + latensi render terminal] setelah dikirim, sehingga offset kalibrasi di board kemungkinan negatif [DIASUMSIKAN sampai ada board]. Jalur A2 (RTL FPGA PWM 8-bit 8 kHz & rangkaian RC PMOD) menunggu tinjauan rangkaian fisik. |
-| **M4** | Integrasi Menyeluruh, Demonstrasi Penuh, & Finalisasi Laporan | **BELUM DIMULAI** | Menunggu integrasi M2 + M3 di board fisik. |
+| **M4** | Integrasi Menyeluruh, Demonstrasi Penuh, & Finalisasi Laporan | **MODUL DAUN SIMULASI SELESAI** | Modul daun `audio_pwm` (Varian B) dan `audio_fifo` (2 KB BRAM) telah diimplementasikan dan selesai pada simulasi (`tb_audio_pwm` dan `tb_audio_fifo` 100% PASS). Belum terintegrasi ke pipeline top-level / `packet_parser`; belum diuji di board fisik. Modul `oled_spi` ditunda menunggu pemeriksaan tabel init. |
 
 ---
 
@@ -37,6 +37,8 @@ Semua testbench berjalan secara otomatis dan memverifikasi keluaran secara deter
 | `tb_rle_decoder` | `rle_decoder.vhd` | Dekoder RLE per baris ke format kanonik | **PASS** | 1.024 B per frame, deteksi run overflow (>128 px) |
 | `tb_stream_rx` | Pipeline gabungan M2a | Rantai UART RX $\rightarrow$ FIFO $\rightarrow$ Parser $\rightarrow$ RLE | **PASS** | 90 frame byte-exact vs `frames.bin` (0 mismatch); vektor galat sesuai `stream_expected.txt` |
 | `tb_top_stream` | Integrasi Penuh Streaming Top | End-to-end streaming, delayed swap, sink ASCII, 25 MHz & 921.600 baud | **PASS** | 90 frame byte-exact (95.310 B) vs `ascii.hex`, penolakan checksum korup, resinkronisasi false SOF & byte insertion, uji real-time 921.600 baud |
+| `tb_audio_pwm` | `audio_pwm.vhd` (Varian B) | Modulator PWM 400 kHz, laju 8 kHz, 100 MHz clock | **PASS** | Seluruh 8 pengujian lolos: 22 tick presisi 12.500 siklus, duty cycle 0x00/0x80/0xFF, ramp 256 nilai, disable duty 50%, carrier stabil 250 siklus, kekebalan perubahan enable & sampel di tengah periode, ketepatan latch 1-siklus |
+| `tb_audio_fifo` | `audio_fifo.vhd` | FIFO audio 2048 B (1x RAMB18E1), FWFT, speculative write, slip 2-arah | **PASS** | Seluruh 8 pengujian lolos: kapasitas 2048 B & pointer wrap, rollback vs commit 266 B, evaluasi wr_reject & cnt_overflow, pre-roll 0x80 (L >= 1024), underflow saat playing, slip 2-arah terakselerasi (dwell & cooldown), tulis-baca simultan 100 MHz, rantai audio_fifo -> audio_pwm bebas underflow |
 
 ### B. Metrik Implementasi Hardware (Target: Xilinx Artix-7 `xc7a35tcpg236-1`)
 
@@ -51,7 +53,16 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context`):
 | `rle_decoder` | **155** (0,75%) | 155 | **62** (0,15%) | 0 (0,00%) | 0 | Run expander 8-bit, deteksi overflow baris (>128 px) |
 | **Total M2a** | **374** (1,80%) | **374** | **320** (0,77%) | **0,5** (1,00%) | **1** | Seluruh modul siap dihubungkan ke top |
 
-#### 2. Implementasi Penuh Bitstream M1 (Klip ROM On-Chip)
+#### 2. Sintesis Out-Of-Context (OOC) Modul Daun Audio M4 (audio_pwm & audio_fifo)
+Diukur secara terisolasi per modul (`synth_design -mode out_of_context` pada `xc7a35tcpg236-1`):
+
+| Modul | Total Slice LUTs | Logic LUTs | Slice Registers (FF) | Block RAM Tile | RAMB18E1 | Catatan Desain |
+|---|---|---|---|---|---|---|
+| `audio_pwm` | **33** (0,16%) | 33 | **27** (0,06%) | 0 (0,00%) | 0 | Varian B: carrier 250 siklus (400 kHz), sample tick 12.500 siklus (8 kHz), zero jitter, latch selaras periode |
+| `audio_fifo` | **175** (0,84%) | 175 | **196** (0,47%) | **0,5** (1,00%) | **1** | BRAM simple dual-port 2048 B murni VHDL-2008, pointer 12-bit, speculative commit & rollback, FWFT output mux, underflow counter, slip dua arah |
+| **Total Daun Audio** | **208** (1,00%) | **208** | **223** (0,54%) | **0,5** (1,00%) | **1** | Selesai pada simulasi unit; belum terintegrasi ke top/parser |
+
+#### 3. Implementasi Penuh Bitstream M1 (Klip ROM On-Chip)
 
 | Parameter | Hasil Terukur | Batas Perangkat | Utilisasi (%) | Status |
 |---|---|---|---|---|

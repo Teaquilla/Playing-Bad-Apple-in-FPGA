@@ -87,7 +87,8 @@ Legenda status: `[ ]` belum, `[~]` berjalan, `[x]` selesai dan terverifikasi.
 | T3.2 | A1: pemutar audio PC yang dimulai sinkron dengan video | penilaian pengguna, mata dan telinga: sinkron. Kondisi: laptop, --fake-fpga, --audio-hostapi wasapi --audio-discipline on, tanpa board/OLED/UART. [DIASUMSIKAN]: celah 1.470 sampel ada di timeline kontainer dan tidak diisi ffmpeg (WAV = 9.380 x 1.024 sampel kontigu); sampel ke-k (k >= 1.024) berada di waktu kontainer k/44100 + 33,33 ms; frame n di 33,33 ms + n/30; maka frame n sejajar WAV pada n/30 [DIASUMSIKAN]; default --av-offset-ms = 0. Video tampil di terminal sekitar [waktu kirim paket + waktu keluaran ASCII ~11,5 ms + latensi render terminal] setelah dikirim, sehingga offset kalibrasi di board kemungkinan negatif [DIASUMSIKAN sampai ada board]. | [x] |
 | T3.3 | Riset dan usulan rangkaian A2 (resistor seri, kapasitor DC-blocking, filter RC) | Skema dan nilai komponen diajukan | [ ] |
 | T3.4 | **GATE:** review manusia atas rangkaian sebelum dihubungkan | Persetujuan tercatat | [ ] |
-| T3.5 | `audio_out` (PWM/sigma-delta) dan testbench | Spektrum/keluaran simulasi sesuai sampel masukan | [ ] |
+| T3.5 | `audio_pwm` (PWM 8-bit 8 kHz Varian B) dan testbench `tb_audio_pwm` | Selesai pada simulasi (8 pengujian xsim 100% PASS, duty cycle & periode carrier konstan, latch selaras periode). Belum terintegrasi ke top/parser; belum diuji di board fisik. | [-] |
+| T3.5a | `audio_fifo` (FIFO BRAM 2048 B spekulatif) dan testbench `tb_audio_fifo` | Selesai pada simulasi (8 pengujian xsim 100% PASS: wrap pointer 12-bit, rollback vs commit 266 B, wr_reject, pre-roll 0x80 L>=1024, underflow counter, slip 2-arah terakselerasi, tulis-baca simultan 100 MHz, rantai audio_fifo -> audio_pwm). Belum terintegrasi ke pipeline top-level / packet_parser; belum diuji di board fisik. | [-] |
 | T3.6 | Uji A2 di hardware dengan earphone | Terdengar benar; tidak ada pemanasan atau distorsi parah | [ ] |
 
 ---
