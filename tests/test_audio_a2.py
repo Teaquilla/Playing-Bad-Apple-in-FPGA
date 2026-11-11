@@ -195,3 +195,4 @@ def test_corrupted_audio_packet_isolation():
     assert fpga.cnt_audio_packets == 0
     assert fpga.valid_frames_count == 0
     assert len(fpga.read_ascii()) == 0
+
