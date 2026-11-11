@@ -432,6 +432,68 @@ begin
         report "Test 8 LULUS: Pencuplikan sample_in terbukti tepat 1-siklus selaras dengan sample_req.";
 
         ------------------------------------------------------------------------
+        -- TEST 9: Verifikasi reset di tengah periode carrier dan reset berulang
+        ------------------------------------------------------------------------
+        report "Menjalankan Test 9: Verifikasi reset di tengah periode carrier dan reset berulang...";
+
+        -- 1. Reset di tengah periode carrier saat duty aktif
+        enable <= '1';
+        sample_in <= x"FF";
+        wait until sample_req = '1';
+        wait until rising_edge(clk);
+
+        -- Tunggu sampai carrier berada di tengah siklus (misal siklus 60 dari 250)
+        wait for 60 * CLK_PERIOD;
+        wait until rising_edge(clk);
+        rst <= '1';
+        wait until rising_edge(clk);
+        wait for 1 ps;
+
+        -- Verifikasi seketika pwm_out = '0' dan sample_req = '0' saat rst aktif
+        assert pwm_out = '0'
+            report "GAGAL [Test 9]: pwm_out tidak 0 saat rst = '1'!" severity failure;
+        assert sample_req = '0'
+            report "GAGAL [Test 9]: sample_req aktif saat rst = '1'!" severity failure;
+
+        -- Tahan reset selama 5 siklus clock
+        wait for 5 * CLK_PERIOD;
+        wait until rising_edge(clk);
+        rst <= '0';
+        wait until rising_edge(clk);
+
+        -- 2. Uji reset berulang (rapid repeated resets)
+        for r_iter in 1 to 5 loop
+            rst <= '1';
+            wait for r_iter * CLK_PERIOD;
+            wait until rising_edge(clk);
+            rst <= '0';
+            wait for (r_iter + 2) * CLK_PERIOD;
+            wait until rising_edge(clk);
+        end loop;
+
+        -- 3. Verifikasi pemulihan nominal pasca-reset berulang
+        sample_in <= x"80"; -- Sampel hening nominal (duty 50% = 125/250)
+        enable    <= '1';
+        wait until sample_req = '1';
+        wait until rising_edge(clk);
+
+        -- Ukur 1 periode carrier penuh pasca-reset
+        high_cycles := 0;
+        for i in 0 to CARRIER_CYCLES - 1 loop
+            wait until rising_edge(clk);
+            if pwm_out = '1' then
+                high_cycles := high_cycles + 1;
+            end if;
+        end loop;
+
+        assert high_cycles = 125
+            report "GAGAL [Test 9]: Modul gagal pulih ke duty 50% pasca-reset berulang (terukur " &
+                   integer'image(high_cycles) & ")!"
+            severity failure;
+
+        report "Test 9 LULUS: Reset di tengah periode carrier dan reset berulang terverifikasi aman.";
+
+        ------------------------------------------------------------------------
         -- RINGKASAN AKHIR
         ------------------------------------------------------------------------
         report "================================================================";
