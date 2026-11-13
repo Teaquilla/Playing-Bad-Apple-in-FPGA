@@ -34,21 +34,21 @@ Untuk menghasilkan clock yang stabil dengan pembagi biner genap tanpa jitter, di
 $$\text{DIVIDER} = 16 \implies f_{\text{SCLK}} = \frac{100\text{ MHz}}{16} = 6,25\text{ MHz}$$
 Periode clock `SCLK` adalah $T_{\text{SCLK}} = 160\text{ ns}$ (lebar pulsa HIGH 80 ns, LOW 80 ns).
 
-#### B. Evaluasi Karakteristik Timing AC (Datasheet SSD1306 Rev 1.1 vs FSM SPI Usulan) [TIDAK TERVERIFIKASI: pengguna belum membaca tabel timing SPI 4-kabel dari `ssd1306_cmd_blocks.txt`]
-Berikut adalah perbandingan parameter timing AC terhadap perancangan FSM master SPI FPGA pada modul `oled_spi.vhd`. Sesuai keputusan tim pada Bagian 4o, status tabel timing SPI 4-kabel dan durasi tunggu reset ditandai sebagai **TIDAK TERVERIFIKASI** (catatan: tabel $t_{\text{cycle}} = 300\text{ ns}$ yang pernah dikutip sebelumnya berasal dari antarmuka paralel 8080/6800 dan DILARANG digunakan untuk SPI 4-kabel; durasi tunggu setelah sinyal `RES#` naik sebesar $1\text{ ms}$ adalah usulan yang **DIASUMSIKAN**, menunggu konfirmasi pembacaan lembar data oleh pengguna):
+#### B. Evaluasi Karakteristik Timing AC (Datasheet SSD1306 Rev 1.1 vs FSM SPI Modul oled_spi)
+Berikut adalah perbandingan parameter timing AC terhadap perancangan FSM master SPI FPGA pada modul daun `oled_spi.vhd`. Sesuai keputusan tim pada Bagian 4p, parameter `tAH`, `tCSS`, dan `tCSH` telah **DIVERIFIKASI** dari bacaan pengguna pada `ssd1306_raw.txt` baris 5676–5693 (halaman 52 menurut penanda). Judul tabel dan parameter AC lainnya (`tcycle`, `tAS`, `tDSW`, `tDHW`, `tCLKL`, `tCLKH`) berstatus **DIASUMSIKAN** menggunakan konstanta konservatif yang aman:
 
-| Simbol Parameter | Nama Parameter Timing | Batas Datasheet (Rev 1.1) | Halaman & Judul Tabel di `ssd1306_raw.txt` | Karakteristik FSM Master SPI FPGA (Clock 100 MHz, SCLK 6,25 MHz) | Status Verifikasi Datasheet | Margin |
+| Simbol Parameter | Nama Parameter Timing | Batas Datasheet (Rev 1.1) | Rujukan di `ssd1306_raw.txt` | Karakteristik FSM Master SPI FPGA (Clock 100 MHz, SCLK 6,25 MHz) | Status Verifikasi Datasheet (Bagian 4p) | Margin Keamanan |
 |---|---|:---:|---|---|:---:|:---:|
-| `tcycle` | Clock Cycle Time | Min $100\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Periode $T_{\text{SCLK}} = 160\text{ ns}$ (16 siklus clock 100 MHz). | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+60\%$ |
-| `tCLKL` | Clock Low Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Pulsa LOW `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+300\%$ |
-| `tCLKH` | Clock High Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Pulsa HIGH `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+300\%$ |
-| `tCSS` | Chip Select Setup Time | Min $20\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `CS#` di-assert LOW minimal 3 siklus clock ($30\text{ ns}$) sebelum tepi pertama `SCLK`. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+50\%$ |
-| `tCSH` | Chip Select Hold Time | Min $10\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `CS#` ditahan LOW minimal 3 siklus clock ($30\text{ ns}$) setelah tepi terakhir `SCLK` sebelum de-asersi ke HIGH. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+200\%$ |
-| `tAS` | Address Setup Time (`D/C#`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `D/C#` disetel bersamaan dengan `CS#` assert, mendahului tepi naik `SCLK` pertama minimal 3 siklus ($30\text{ ns}$). | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+100\%$ |
-| `tAH` | Address Hold Time (`D/C#`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Sinyal `D/C#` dipertahankan stabil setelah tepi turun `SCLK` minimal 8 siklus clock = $80\text{ ns}$ sebelum perubahan state. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+433\%$ |
-| `tDSW` | Write Data Setup Time (`SDIN`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Data `MOSI` disiapkan pada tepi turun `SCLK`, memberikan setup time 8 siklus clock = $80\text{ ns}$ terhadap tepi naik berikutnya. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+433\%$ |
-| `tDHW` | Write Data Hold Time (`SDIN`) | Min $15\text{ ns}$ | Hal. 52, Table 13-4: 4-wire Serial Interface Timing | Data `MOSI` dipertahankan stabil selama fase HIGH = 8 siklus clock = $80\text{ ns}$ hingga tepi turun berikutnya. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+433\%$ |
-| `RES#` | Reset Low Pulse Width | Min $3\ \mu\text{s}$ | Hal. 49, Table 13-1: AC Characteristics | Pulsa reset hardware LOW dibangkitkan selama 1.000 siklus clock 100 MHz = $10\ \mu\text{s}$. | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** | $+233\%$ |
+| `tcycle` | Clock Cycle Time | Min $100\text{ ns}$ | Baris 5677 (Hal. 52) | Periode $T_{\text{SCLK}} = 160\text{ ns}$ (16 siklus clock 100 MHz). | **DIASUMSIKAN (konstanta konservatif)** | $+60\%$ ($+60\text{ ns}$) |
+| `tCLKL` | Clock Low Time | Min $20\text{ ns}$ | Baris 5686 (Hal. 52) | Pulsa LOW `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **DIASUMSIKAN (konstanta konservatif)** | $+300\%$ ($+60\text{ ns}$) |
+| `tCLKH` | Clock High Time | Min $20\text{ ns}$ | Baris 5685 (Hal. 52) | Pulsa HIGH `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **DIASUMSIKAN (konstanta konservatif)** | $+300\%$ ($+60\text{ ns}$) |
+| `tCSS` | Chip Select Setup Time | Min $20\text{ ns}$ | Baris 5683 (Hal. 52) | Sinyal `CS#` di-assert LOW 3 siklus clock ($30\text{ ns}$) sebelum tepi pertama `SCLK`. | **DIVERIFIKASI (bacaan pengguna)** | $+50\%$ ($+10\text{ ns}$) |
+| `tCSH` | Chip Select Hold Time | Min $10\text{ ns}$ | Baris 5684 (Hal. 52) | Sinyal `CS#` ditahan LOW 2 siklus clock ($20\text{ ns}$) setelah tepi terakhir `SCLK` sebelum naik. | **DIVERIFIKASI (bacaan pengguna)** | $+100\%$ ($+10\text{ ns}$) |
+| `tAS` | Address Setup Time (`D/C#`) | Min $15\text{ ns}$ | Baris 5681 (Hal. 52) | Sinyal `D/C#` disetel bersamaan dengan `CS#` assert, mendahului tepi naik `SCLK` pertama $\ge 30\text{ ns}$. | **DIASUMSIKAN (konstanta konservatif)** | $+100\%$ ($+15\text{ ns}$) |
+| `tAH` | Address Hold Time (`D/C#`) | Min $15\text{ ns}$ | Baris 5682 (Hal. 52) | Sinyal `D/C#` dipertahankan stabil setelah tepi turun `SCLK` minimal 8 siklus clock = $80\text{ ns}$. | **DIVERIFIKASI (bacaan pengguna)** | $+433\%$ ($+65\text{ ns}$) |
+| `tDSW` | Write Data Setup Time (`SDIN`) | Min $15\text{ ns}$ | Baris 5687 (Hal. 52) | Data `MOSI` disiapkan pada tepi turun `SCLK`, memberikan setup time 8 siklus clock = $80\text{ ns}$. | **DIASUMSIKAN (konstanta konservatif)** | $+433\%$ ($+65\text{ ns}$) |
+| `tDHW` | Write Data Hold Time (`SDIN`) | Min $15\text{ ns}$ | Baris 5688 (Hal. 52) | Data `MOSI` dipertahankan stabil selama fase HIGH = 8 siklus clock = $80\text{ ns}$. | **DIASUMSIKAN (konstanta konservatif)** | $+433\%$ ($+65\text{ ns}$) |
+| `RES#` | Reset Low Pulse Width | Min $3\ \mu\text{s}$ | Hal. 49, Table 13-1 | Pulsa reset hardware LOW dibangkitkan selama 1.000 siklus clock 100 MHz = $10\ \mu\text{s}$. | **DIVERIFIKASI (Table 13-1)** | $+233\%$ ($+7\ \mu\text{s}$) |
 
 ### 1.3 Analisis Anggaran Waktu Transfer per Frame (Frame Budget)
 - **Ukuran Data Grafis Layar 128×64:**
@@ -180,6 +180,73 @@ Tabel berikut mencantumkan setiap byte perintah konfigurasi inisialisasi FSM mod
     *Perilaku pada Mode Klip BRAM (M1, STREAMING_MODE = false):*
     Pada mode klip ROM internal, timer onboard memicu swap frame setiap $33,33\text{ ms}$ (30 FPS). Karena pembacaan OLED ($1,32\text{ ms}$) dan transfer ASCII ($11,48\text{ ms}$) keduanya selesai jauh sebelum tick frame 33,33 ms berikutnya, kedua subsistem membaca frame yang sama secara sinkron tanpa perebutan BRAM maupun glitch visual.
     *Biaya Hardware:* Penambahan 1 blok RAMB18E1 (0,5 BRAM Tile). Berdasarkan utilisasi implementasi M2b, FPGA Basys 3 saat ini hanya menggunakan 1,0 BRAM Tile dari 50 Tile yang tersedia (utilisasi hanya $2,00\%$, tersisa 49 Tile / 98 RAMB18) [DIVERIFIKASI: `docs/STATUS.md` baris 97]. Menambah 1 blok RAMB18E1 sepenuhnya menghilangkan logika arbitrase, meminimalkan latensi, dan menjaga independensi kedua subsistem [DIASUMSIKAN].
+
+### 2.4 Perancangan RTL Modul Daun `oled_spi.vhd` (Implementasi Milestone 4)
+
+Modul `oled_spi.vhd` dirancang sebagai modul daun (*leaf module*) mandiri yang mengemudikan layar OLED SSD1306 via antarmuka serial SPI 4-kabel Mode 0 pada clock sistem 100 MHz [DIVERIFIKASI: `hdl/oled_spi.vhd`].
+
+#### A. Antarmuka Port Entity (`oled_spi`)
+| Port | Arah | Tipe | Deskripsi Sinyal |
+|---|:---:|:---:|---|
+| `clk` | In | `std_logic` | Clock sistem utama FPGA (100 MHz). |
+| `rst` | In | `std_logic` | Sinyal reset sinkron aktif-tinggi. |
+| `start` | In | `std_logic` | Pulsa pemicu pengiriman 1 frame baru (1 siklus clock). |
+| `busy` | Out | `std_logic` | Status sibuk ('1' saat fase reset/init atau transmisi frame berlangsung). |
+| `rd_addr` | Out | `std_logic_vector(9 downto 0)` | Alamat baca memori BRAM frame buffer raster ($0..1023$). |
+| `rd_data` | In | `std_logic_vector(7 downto 0)` | Data byte piksel raster dari memori frame buffer. |
+| `oled_res` | Out | `std_logic` | Sinyal reset fisik hardware SSD1306 (RES#, aktif-rendah). |
+| `oled_dc` | Out | `std_logic` | Sinyal pemilih Data/Command SSD1306 (D/C#; '0' = Perintah, '1' = Data). |
+| `oled_cs` | Out | `std_logic` | Sinyal Chip Select SSD1306 (CS#, aktif-rendah). |
+| `oled_sclk` | Out | `std_logic` | Serial Clock SPI Mode 0 (diam rendah, cuplik pada tepi naik). |
+| `oled_mosi` | Out | `std_logic` | Serial Data Output (SDIN / MOSI, MSB duluan). |
+| `init_done` | Out | `std_logic` | Status selesai inisialisasi hardware ('1' setelah 25 byte terkirim). |
+
+#### B. Parameter Generics Modul
+| Generic | Tipe | Nilai Default | Deskripsi & Dasar Pertimbangan |
+|---|:---:|:---:|---|
+| `CLK_DIV` | `natural` | `16` | Pembagi clock SPI. Nilai 16 menghasilkan $f_{\text{SCLK}} = 6,25\text{ MHz}$ ($T = 160\text{ ns}$), memenuhi $t_{\text{cycle}} \ge 100\text{ ns}$. |
+| `REMAP_SEG` | `std_logic_vector(7 downto 0)` | `x"A1"` | Perintah pemetaan kolom segmen (`0xA0` normal, `0xA1` remapped $0 \to 127$). |
+| `REMAP_COM` | `std_logic_vector(7 downto 0)` | `x"C8"` | Perintah arah pemindaian baris (`0xC0` normal, `0xC8` remapped $0 \to N-1$). |
+| `CONTRAST` | `std_logic_vector(7 downto 0)` | `x"CF"` | Nilai kecerahan kontras tampilan register `0x81`. |
+| `INVERT_DATA` | `boolean` | `false` | Inversi polaritas piksel kanonik. Default `false`: piksel kanonik bit 1 = menyala/terang (RAM 1 pada normal mode `0xA6`). |
+| `READ_LATENCY` | `natural` | `1` | Siklus tunda pembacaan sinkron BRAM frame buffer (latensi 1 siklus). |
+| `RES_LOW_CYCLES` | `natural` | `1000` | Siklus clock pulsa LOW sinyal `oled_res` ($1.000\text{ siklus} = 10\ \mu\text{s} \ge 3\ \mu\text{s}$). |
+| `RES_WAIT_CYCLES` | `natural` | `100000` | Siklus tunggu pasca-reset fisik sebelum SPI aktif ($100.000\text{ siklus} = 1\text{ ms}$) [DIASUMSIKAN]. |
+| `CS_SETUP_CYCLES` | `natural` | `3` | Waktu tunggu `CS#` LOW sebelum tepi naik pertama SCLK ($30\text{ ns} \ge 20\text{ ns}$). |
+| `CS_HOLD_CYCLES` | `natural` | `2` | Waktu tunggu `CS#` LOW setelah tepi turun terakhir SCLK ($20\text{ ns} \ge 10\text{ ns}$). |
+
+#### C. Diagram Waktu Teks (ASCII Timing Diagram - SPI Mode 0 Transmisi Byte)
+```text
+Clock 100 MHz   : __|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__
+                   |<-- tCSS -->|                                   |<-- tCSH -->|
+oled_cs (CS#)   : ~~~~~~~~~~~~~~\________________________________________________/~~~~~~~~~~~~~~~~~
+                                 |<----------- 8 Siklus SCLK (1 Byte) ---------->|
+oled_sclk (SCLK): ______________|~~~|___|~~~|___|~~~|___|~~~|___ ... ___|~~~|___________________
+                   |<-- tAS --->|   |       |
+oled_dc (D/C#)  : ======X================================================================X=========
+                        |        D/C stabil (0 = Perintah, 1 = Data)
+oled_mosi (SDIN): ======X=======< Bit 7 >< Bit 6 >< Bit 5 > ... < Bit 0 >=================X=========
+                        |<tDSW->|<-tDHW->|
+                                ^        ^
+                                Cuplik 1 Cuplik 2
+```
+
+#### D. Hitungan Margin Timing terhadap Batas Datasheet SSD1306
+| Parameter | Nilai Batas Datasheet | Karakteristik Terukur FSM `oled_spi` | Margin Keamanan | Status Verifikasi |
+|---|:---:|:---:|:---:|:---:|
+| $t_{\text{cycle}}$ | Min $100\text{ ns}$ | $160\text{ ns}$ | $+60\%$ ($+60\text{ ns}$) | **DIASUMSIKAN (konstanta konservatif)** |
+| $t_{\text{CLKL}}$ | Min $20\text{ ns}$ | $80\text{ ns}$ | $+300\%$ ($+60\text{ ns}$) | **DIASUMSIKAN (konstanta konservatif)** |
+| $t_{\text{CLKH}}$ | Min $20\text{ ns}$ | $80\text{ ns}$ | $+300\%$ ($+60\text{ ns}$) | **DIASUMSIKAN (konstanta konservatif)** |
+| $t_{\text{CSS}}$ | Min $20\text{ ns}$ | $30\text{ ns}$ | $+50\%$ ($+10\text{ ns}$) | **DIVERIFIKASI (bacaan pengguna baris 5683)** |
+| $t_{\text{CSH}}$ | Min $10\text{ ns}$ | $20\text{ ns}$ | $+100\%$ ($+10\text{ ns}$) | **DIVERIFIKASI (bacaan pengguna baris 5684)** |
+| $t_{\text{AS}}$ | Min $15\text{ ns}$ | $30\text{ ns}$ | $+100\%$ ($+15\text{ ns}$) | **DIASUMSIKAN (konstanta konservatif)** |
+| $t_{\text{AH}}$ | Min $15\text{ ns}$ | $\ge 80\text{ ns}$ | $+433\%$ ($+65\text{ ns}$) | **DIVERIFIKASI (bacaan pengguna baris 5682)** |
+| $t_{\text{DSW}}$ | Min $15\text{ ns}$ | $80\text{ ns}$ | $+433\%$ ($+65\text{ ns}$) | **DIASUMSIKAN (konstanta konservatif)** |
+| $t_{\text{DHW}}$ | Min $15\text{ ns}$ | $80\text{ ns}$ | $+433\%$ ($+65\text{ ns}$) | **DIASUMSIKAN (konstanta konservatif)** |
+| $t_{\text{RES}}$ | Min $3\ \mu\text{s}$ | $10\ \mu\text{s}$ | $+233\%$ ($+7\ \mu\text{s}$) | **DIVERIFIKASI (Hal. 49 Table 13-1)** |
+
+> [!NOTE]
+> Modul `oled_spi.vhd` belum diintegrasikan ke `top.vhd` dan batasan pin `basys3.xdc` belum ditambahkan pada tahap ini. Keputusan D-16 (filter audio) dan D-18 (resinkronisasi underflow) tetap berstatus **TERBUKA** dan tidak ditutup.
 
 ---
 
