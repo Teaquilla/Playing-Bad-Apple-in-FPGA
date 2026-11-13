@@ -35,7 +35,7 @@ $$\text{DIVIDER} = 16 \implies f_{\text{SCLK}} = \frac{100\text{ MHz}}{16} = 6,2
 Periode clock `SCLK` adalah $T_{\text{SCLK}} = 160\text{ ns}$ (lebar pulsa HIGH 80 ns, LOW 80 ns).
 
 #### B. Evaluasi Karakteristik Timing AC (Datasheet SSD1306 Rev 1.1 vs FSM SPI Usulan) [TIDAK TERVERIFIKASI: pengguna belum membaca tabel timing SPI 4-kabel dari `ssd1306_cmd_blocks.txt`]
-Berikut adalah perbandingan parameter timing AC dari dokumen Solomon Systech SSD1306 terhadap perancangan FSM master SPI FPGA pada modul `oled_spi.vhd`. Sesuai keputusan tim pada Bagian 4n, seluruh rujukan dan batas parameter timing AC ditandai sebagai **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)**:
+Berikut adalah perbandingan parameter timing AC terhadap perancangan FSM master SPI FPGA pada modul `oled_spi.vhd`. Sesuai keputusan tim pada Bagian 4o, status tabel timing SPI 4-kabel dan durasi tunggu reset ditandai sebagai **TIDAK TERVERIFIKASI** (catatan: tabel $t_{\text{cycle}} = 300\text{ ns}$ yang pernah dikutip sebelumnya berasal dari antarmuka paralel 8080/6800 dan DILARANG digunakan untuk SPI 4-kabel; durasi tunggu setelah sinyal `RES#` naik sebesar $1\text{ ms}$ adalah usulan yang **DIASUMSIKAN**, menunggu konfirmasi pembacaan lembar data oleh pengguna):
 
 | Simbol Parameter | Nama Parameter Timing | Batas Datasheet (Rev 1.1) | Halaman & Judul Tabel di `ssd1306_raw.txt` | Karakteristik FSM Master SPI FPGA (Clock 100 MHz, SCLK 6,25 MHz) | Status Verifikasi Datasheet | Margin |
 |---|---|:---:|---|---|:---:|:---:|
@@ -76,30 +76,30 @@ Modul hardware `oled_spi.vhd` akan mengimplementasikan State Machine (FSM) inisi
 3. **Pengiriman Urutan Perintah Konfigurasi:** Dikirim secara serial dengan sinyal `DC = 0` dan `CS = 0`.
 4. **Display ON:** Perintah `0xAF` dikirim di akhir urutan konfigurasi untuk menghidupkan panel layar.
 
-#### B. Tabel Perintah Inisialisasi Register SSD1306 Byte demi Byte [TIDAK TERVERIFIKASI: menunggu pembacaan pengguna dari `ssd1306_cmd_blocks.txt`]
+#### B. Tabel Perintah Inisialisasi Register SSD1306 Byte demi Byte [DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt) / SEBAGIAN TIDAK TERVERIFIKASI]
 
-Tabel berikut mencantumkan setiap byte perintah konfigurasi inisialisasi FSM modul `oled_spi.vhd`. Sesuai aturan Bagian 4n, seluruh status kutipan teks lembar data ditandai sebagai **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)**, kecuali nilai parameter VCOMH (`0x00`, `0x20`, `0x30`) yang telah diverifikasi oleh pengguna:
+Tabel berikut mencantumkan setiap byte perintah konfigurasi inisialisasi FSM modul `oled_spi.vhd` yang diperbarui berdasarkan **BACAAN PENGGUNA dari `ssd1306_raw.txt`** (dengan nomor halaman diverifikasi dari penanda `=== PAGE n ===` terdekat sebelumnya). Status verifikasi dibedakan secara tegas:
 
-| No | Byte (Hex) | Arti / Fungsi Register | Rujukan Tabel & Konteks Perintah | Status Verifikasi Datasheet (Bagian 4n) |
+| No | Byte (Hex) | Arti / Fungsi Register | Rujukan Halaman & Baris di `ssd1306_raw.txt` | Status Verifikasi Datasheet (Bagian 4o) |
 |---|---|---|---|---|
-| 1 | `0xAE` | Display OFF (Sleep Mode) | Fundamental Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 2 | `0xD5`, `0x80` | Set Display Clock Divide Ratio & Oscillator Frequency | Timing & Driving Scheme Setting Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 3 | `0xA8`, `0x3F` | Set Multiplex Ratio (64MUX) | Hardware Configuration Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 4 | `0xD3`, `0x00` | Set Display Offset (Offset 0) | Hardware Configuration Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 5 | `0x40` | Set Display Start Line (Line 0) | Hardware Configuration Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 6 | `0x8D`, `0x14` | Charge Pump Setting (Enable 7,5V) | Tidak ada di PDF Rev 1.1 (Pin VBAT, C1N..C2P terdaftar) | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 7 | `0x20`, `0x00` | Set Memory Addressing Mode (Horizontal Addressing) | Addressing Setting Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 8 | `0xA1` | Set Segment Re-map (Kolom 127 ke SEG0) | Hardware Configuration Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 9 | `0xC8` | Set COM Output Scan Direction (COM[N-1] ke COM0) | Hardware Configuration Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 10 | `0xDA`, `0x12` | Set COM Pins Hardware Configuration (Alternative PIN, Disable L/R Remap) | Hardware Configuration Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 11 | `0x81`, `0xCF` | Set Contrast Control (Tingkat kontras `0xCF`) | Fundamental Command Table (rentang 00h..FFh) | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 12 | `0xD9`, `0xF1` | Set Pre-charge Period (Phase 1 = 1 DCLK, Phase 2 = 15 DCLK) | Timing & Driving Scheme Setting Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 13 | `0xDB`, `0x20` | Set VCOMH Deselect Level (~0,77 x VCC) | Timing & Driving Scheme Setting Command Table | **DIVERIFIKASI (nilai 00h/20h/30h telah dikonfirmasi pengguna; kutipan literal menunggu pembacaan ssd1306_cmd_blocks.txt)** |
-| 14 | `0xA4` | Entire Display ON (Resume to RAM Content) | Fundamental Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 15 | `0xA6` | Set Normal Display | Fundamental Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 16 | `0xAF` | Display ON (Normal Mode) | Fundamental Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 17 | `0x21`, `0x00`, `0x7F` | Set Column Address (Rentang kolom $0..127$) | Addressing Setting Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
-| 18 | `0x22`, `0x00`, `0x07` | Set Page Address (Rentang halaman $0..7$) | Addressing Setting Command Table | **TIDAK TERVERIFIKASI (menunggu pembacaan pengguna dari ssd1306_cmd_blocks.txt)** |
+| 1 | `0xAE` | Display OFF (Sleep Mode) | Hal. 28 (Table 9-1 baris 1176–1180) & Hal. 37 (§10.1.12 baris 2623) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
+| 2 | `0xD5`, `0x80` | Set Display Clock Divide Ratio & Oscillator Frequency | Hal. 40 (§10.1.16 baris 4603) & Hal. 32 (Table 9-1 baris 2039–2048) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (§10.1.16: pembagi reset 1, osilator default 1000b, jadi 0x80 = nilai bawaan) |
+| 3 | `0xA8`, `0x3F` | Set Multiplex Ratio (64MUX) | Hal. 31 (Table 9-1 baris 1911–1915) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
+| 4 | `0xD3`, `0x00` | Set Display Offset (Offset 0) | Hal. 31 (Table 9-1 baris 1975–1977) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
+| 5 | `0x40` | Set Display Start Line (Line 0) | Hal. 31 (Table 9-1 baris 1861–1864) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
+| 6 | `0x8D`, `0x14` | Charge Pump Setting (Enable 7,5V) | Tidak ada di Rev 1.1 (pin VBAT, C1N, C1P, C2N, C2P terdaftar Hal. 15–16) | **TIDAK TERVERIFIKASI** (tidak ada di Rev 1.1; silikon memiliki pin VBAT, C1N, C1P, C2N, C2P; sumber lain: contoh kode penjual modul atau revisi datasheet baru) |
+| 7 | `0x20`, `0x00` | Set Memory Addressing Mode (Horizontal Addressing) | Hal. 35 (§10.1.4 baris 2483) & Hal. 36 (§10.1.5 baris 2504) | **TIDAK TERVERIFIKASI** (kode mode horizontal belum dibaca pengguna; reset = mode halaman 10b) |
+| 8 | `0xA1` | Set Segment Re-map (Kolom 127 ke SEG0) | Hal. 31 (Table 9-1 baris 1886–1889) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
+| 9 | `0xC8` | Set COM Output Scan Direction (COM[N-1] ke COM0) | Hal. 31 (Table 9-1 baris 1939) & Hal. 37 (§10.1.14 baris 2637) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
+| 10 | `0xDA`, `0x12` | Set COM Pins Hardware Configuration (Alternative PIN, Disable L/R Remap) | Hal. 31 (Table 9-1 baris 2008–2017) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (A[4]=1b RESET, A[5]=0b RESET, jadi 0x12 = nilai reset) |
+| 11 | `0x81`, `0xCF` | Set Contrast Control (Tingkat kontras `0xCF`) | Hal. 28 (Table 9-1 baris 1098–1101) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (reset 7Fh, rentang 00..FF) |
+| 12 | `0xD9`, `0xF1` | Set Pre-charge Period (Phase 1 = 1 DCLK, Phase 2 = 15 DCLK) | Hal. 32 (Table 9-1 baris 2113–2119) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (0 tidak valid; reset 2h) |
+| 13 | `0xDB`, `0x20` | Set VCOMH Deselect Level (~0,77 x VCC) | Hal. 32 (Table 9-1 baris 2140) & Hal. 43 (§10.1.19 baris 4828) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (00h ~0,65, 20h ~0,77 RESET, 30h ~0,83) |
+| 14 | `0xA4` | Entire Display ON (Resume to RAM Content) | Hal. 28 (Table 9-1 baris 1113) & Hal. 37 (§10.1.9 baris 2606) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (pada tampilan normal data RAM 1 = piksel menyala) |
+| 15 | `0xA6` | Set Normal Display | Hal. 28 (Table 9-1 baris 1140) & Hal. 37 (§10.1.10 baris 2612) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (pada tampilan normal data RAM 1 = piksel menyala) |
+| 16 | `0xAF` | Display ON (Normal Mode) | Hal. 28 (Table 9-1 baris 1176–1180) & Hal. 37 (§10.1.12 baris 2623) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
+| 17 | `0x21`, `0x00`, `0x7F` | Set Column Address (Rentang kolom $0..127$) | Hal. 30 (Table 9-1 baris 1712–1717) & Hal. 35 (§10.1.4 baris 2483) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
+| 18 | `0x22`, `0x00`, `0x07` | Set Page Address (Rentang halaman $0..7$) | Hal. 31 (Table 9-1 baris 1785–1790) & Hal. 36 (§10.1.5 baris 2504) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
 
 #### C. Catatan Khusus Verifikasi & Koreksi Register
 
@@ -120,6 +120,11 @@ Tabel berikut mencantumkan setiap byte perintah konfigurasi inisialisasi FSM mod
 3. **Status Perintah Charge Pump Setting (`0x8D 0x14`):**
    - Silikon chip SSD1306 memiliki pin fisik untuk rangkaian charge pump (pin `VBAT`, `C1N`, `C1P`, `C2N`, `C2P` secara eksplisit terdaftar pada deskripsi pin Rev 1.1 Halaman 15-16). Namun, perintah konfigurasinya (`0x8D 0x14`) dan urutan power-on pengaktifan pengali tegangan internal sama sekali tidak terdokumentasi di dalam lembar data dasar Rev 1.1 (April 2008).
    - Berdasarkan KEPUTUSAN TIM 1 ("belum ada revisi baru"), status perintah `8Dh` dan urutan inisialisasi charge pump ditandai secara resmi sebagai **TIDAK TERVERIFIKASI**. Perintah ini dipertahankan sebagai konvensi modul industri komersial 0,96" 7-pin yang ditenagai 3,3V tunggal, namun memerlukan pengujian empiris langsung pada hardware fisik atau rujukan lembar data pelengkap (*Application Note / SSD1306B*).
+
+4. **Catatan Perilaku Mode Pengalamatan Horisontal (§10.1.4, Halaman 35/36):**
+   - Berdasarkan lembar data §10.1.4 (Halaman 35 baris 2486–2489) dan §10.1.5 (Halaman 36 baris 2518–2520): pada mode horizontal (`0x20 0x00`), setelah membaca atau menulis data satu kolom RAM, penunjuk kolom (*column address pointer*) secara otomatis bertambah ke kolom berikutnya.
+   - Setiap kali penunjuk kolom selesai mengakses batas kolom akhir (kolom 127 / `0x7F`), penunjuk kolom secara otomatis kembali (*reset/wrap*) ke kolom awal (kolom 0 / `0x00`), dan penunjuk baris/halaman (*page address pointer*) otomatis naik (+1) ke halaman berikutnya.
+   - Sifat ini memungkinkan modul hardware `oled_spi` menyemburkan 1.024 byte data frame secara kontigu dan linier (Page 0 Kolom 0..127 $\to$ Page 1 Kolom 0..127 $\to \dots \to$ Page 7 Kolom 0..127) tanpa perlu mengirimkan ulang perintah alamat di sela-sela halaman.
 
 ### 1.5 Mekanisme Buffer Swap & Sinkronisasi Frame
 - Pembaruan tampilan OLED dilakukan tepat setelah frame baru selesai didekode ke BRAM frame buffer dan sinyal swap bank BRAM aktif [DIVERIFIKASI: konsep `swap_ready` pada `hdl/frame_buffer.vhd` baris 41].
@@ -471,13 +476,12 @@ Misalkan terjadi jeda transmisi sesaat sebesar $T_{\text{stall}} = 100\text{ ms}
 
 #### D. Protokol Jabat Tangan Tulis & Analisis Hazard Waktu (Berdasarkan Hasil Uji C.4)
 Berdasarkan hasil pengujian empiris timing protokol pada `tb_audio_fifo` (Test 10):
-1. **Aturan `wr_start`:**
-   Sinyal `wr_start` wajib berupa pulsa aktif HIGH tepat 1 siklus clock mendahului byte `wr_valid` pertama, bersamaan dengan nilai `wr_len` yang valid. Hal ini memberi waktu bagi register `reject_latch` untuk aktif pada siklus berikutnya jika ruang bebas tidak mencukupi.
+1. **Aturan `wr_start` (Wajib Mendahului 1 Siklus):**
+   Sinyal `wr_start` wajib berupa pulsa aktif HIGH tepat 1 siklus clock mendahului byte `wr_valid` pertama, bersamaan dengan nilai `wr_len` yang valid (`wr_start` wajib mendahului `wr_valid` pertama satu siklus). Hal ini memberi waktu bagi register `reject_latch` untuk aktif pada siklus berikutnya jika ruang bebas BRAM tidak mencukupi.
 2. **Aturan Jeda `wr_commit` (Wajib Minimal 1 Siklus):**
    Sinyal pengesahan paket `wr_commit` **WAJIB DIBERIKAN MINIMAL 1 SIKLUS CLOCK SETELAH `wr_valid` TERAKHIR** (`wr_valid <= '0'`, tunggu 1 siklus clock, lalu `wr_commit <= '1'`).
-   *Hazard Jika Bersamaan (Empirical Hazard):*
-   Jika `wr_commit` di-assert pada siklus clock yang persis sama dengan `wr_valid` terakhir:
-   Di dalam proses sekuensial synchronous, `w_spec <= w_spec + 1` dan `w_commit <= w_spec` dievaluasi serentak. Register `w_commit` mengambil nilai `w_spec` saat itu (sebelum inkremen byte terakhir berlaku). Akibatnya, **byte terakhir paket hilang dari commit** (tercatat level hanya bertambah $N-1$ bukan $N$). Oleh karena itu, pengirim wajib memberikan jeda 1 siklus clock.
+   *Hazard Jika Bersamaan (Sifat Inheren Modul):*
+   Hazard `wr_commit` bersamaan dengan `wr_valid` terakhir adalah sifat inheren modul (evaluasi sekuensial sinkron): jika `wr_commit` di-assert pada siklus clock yang persis sama dengan `wr_valid` terakhir, di dalam proses sekuensial synchronous `w_spec <= w_spec + 1` dan `w_commit <= w_spec` dievaluasi serentak, sehingga register `w_commit` mengambil nilai `w_spec` saat itu (sebelum inkremen byte terakhir berlaku). Akibatnya, **byte terakhir paket hilang dari commit** (tercatat level hanya bertambah $N-1$ bukan $N$). Oleh karena itu, arsitektur integrasi parser wajib memberi jeda minimal 1 siklus sebelum asersi `wr_commit`.
 
 #### E. Perilaku Sinyal `wr_reject` & Proteksi Kapasitas BRAM
 1. **Evaluasi Kombinasional:**
