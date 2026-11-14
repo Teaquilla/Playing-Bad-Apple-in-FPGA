@@ -85,12 +85,12 @@ Legenda status: `[ ]` belum, `[~]` berjalan, `[x]` selesai dan terverifikasi.
 |---|---|---|---|
 | T3.1 | **GATE:** tutup D-3 (pemegang waktu) dan D-5 (parameter audio) | Dicatat | [x] |
 | T3.2 | A1: pemutar audio PC yang dimulai sinkron dengan video | penilaian pengguna, mata dan telinga: sinkron. Kondisi: laptop, --fake-fpga, --audio-hostapi wasapi --audio-discipline on, tanpa board/OLED/UART. [DIASUMSIKAN]: celah 1.470 sampel ada di timeline kontainer dan tidak diisi ffmpeg (WAV = 9.380 x 1.024 sampel kontigu); sampel ke-k (k >= 1.024) berada di waktu kontainer k/44100 + 33,33 ms; frame n di 33,33 ms + n/30; maka frame n sejajar WAV pada n/30 [DIASUMSIKAN]; default --av-offset-ms = 0. Video tampil di terminal sekitar [waktu kirim paket + waktu keluaran ASCII ~11,5 ms + latensi render terminal] setelah dikirim, sehingga offset kalibrasi di board kemungkinan negatif [DIASUMSIKAN sampai ada board]. | [x] |
-| T3.3 | Riset dan usulan rangkaian A2 (resistor seri, kapasitor DC-blocking, filter RC) | Skema dan nilai komponen diajukan | [ ] |
-| T3.4 | **GATE:** review manusia atas rangkaian sebelum dihubungkan | Persetujuan tercatat | [ ] |
-| T3.5 | `audio_pwm` (PWM 8-bit 8 kHz Varian B) dan testbench `tb_audio_pwm` | Selesai pada simulasi (8 pengujian xsim 100% PASS, duty cycle & periode carrier konstan, latch selaras periode). Belum terintegrasi ke top/parser; belum diuji di board fisik. | [-] |
-| T3.5a | `audio_fifo` (FIFO BRAM 2048 B spekulatif) dan testbench `tb_audio_fifo` | Selesai pada simulasi (8 pengujian xsim 100% PASS: wrap pointer 12-bit, rollback vs commit 266 B, wr_reject, pre-roll 0x80 L>=1024, underflow counter, slip 2-arah terakselerasi, tulis-baca simultan 100 MHz, rantai audio_fifo -> audio_pwm). Belum terintegrasi ke pipeline top-level / packet_parser; belum diuji di board fisik. | [-] |
-| T3.5b | `packet_parser` ekstensi audio & testbench `tb_parser_audio` | Selesai pada simulasi (7 skenario mixed stream lolos 100% byte-exact: clean, corrupt checksum, corrupt EOF, payload false SOF, aud_reject, truncated watchdog, len=63; 6 uji mutasi tertangkap). Belum terintegrasi ke top-level (`top.vhd`); belum diuji di board fisik. | [-] |
-| T3.6 | Uji A2 di hardware dengan earphone | Terdengar benar; tidak ada pemanasan atau distorsi parah | [ ] |
+| T3.3 | Riset dan usulan rangkaian A2 (resistor seri, kapasitor DC-blocking, filter RC) | [DI LUAR LINGKUP]: Audio FPGA (A2) dibatalkan atas keputusan pengguna 2026-11-14. Audio hanya dari laptop (A1). | [-] |
+| T3.4 | **GATE:** review manusia atas rangkaian sebelum dihubungkan | [DI LUAR LINGKUP]: Audio FPGA (A2) dibatalkan atas keputusan pengguna 2026-11-14. | [-] |
+| T3.5 | `audio_pwm` (PWM 8-bit 8 kHz Varian B) dan testbench `tb_audio_pwm` | [DI LUAR LINGKUP]: Selesai pada simulasi (8 pengujian xsim 100% PASS). Audio FPGA (A2) dibatalkan (keputusan pengguna 2026-11-14); tidak diintegrasikan ke top. | [-] |
+| T3.5a | `audio_fifo` (FIFO BRAM 2048 B spekulatif) dan testbench `tb_audio_fifo` | [DI LUAR LINGKUP]: Selesai pada simulasi (8 pengujian xsim 100% PASS). Audio FPGA (A2) dibatalkan (keputusan pengguna 2026-11-14); tidak diintegrasikan ke top. | [-] |
+| T3.5b | `packet_parser` ekstensi audio & testbench `tb_parser_audio` | [DI LUAR LINGKUP]: Selesai pada simulasi (7 skenario mixed stream lolos 100% byte-exact). Audio FPGA (A2) dibatalkan (keputusan pengguna 2026-11-14); port audio dibiarkan open di top.vhd. | [-] |
+| T3.6 | Uji A2 di hardware dengan earphone | [DI LUAR LINGKUP]: Audio FPGA (A2) dibatalkan atas keputusan pengguna 2026-11-14. | [-] |
 
 ---
 

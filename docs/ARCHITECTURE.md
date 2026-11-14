@@ -191,8 +191,11 @@ Waktu (perkiraan, 1059 byte per frame × 10 bit per byte pada UART 8N1):
 Anggaran satu frame pada 30 fps adalah 33,3 ms. 115200 baud tidak cukup. 921600 memakai sekitar sepertiga anggaran. Pembacaan buffer (1024 byte per frame pada 100 MHz) jauh lebih cepat daripada UART, sehingga UART adalah bottleneck-nya.
 
 ### 4.7 `audio_out` (M3, kerangka)
-Sesuai keputusan tim D-5 (2026-10-31), parameter audio hardware ditetapkan pada **PCM 8-bit 8 kHz mono unsigned** (titik tengah 128, ukuran total 217,84 s $\times$ 8.000 B = 1.742.720 Byte / 13,94 Mbit).
-- **Konsekuensi Jalur Output A2 (Audio dari FPGA):** Masuk: aliran sampel PCM 8-bit 8 kHz pada laju `sample_tick`. Keluar: 1 pin PMOD (PWM atau sigma-delta) + filter rekonstruksi RC di luar FPGA + earphone [DIASUMSIKAN sampai ada rangkaian fisik dan batas arus pin diverifikasi dari datasheet]. Logika dekoder ADPCM di hardware dieliminasi penuh sehingga hemat logika.
+> **Status Sub-Sistem Audio FPGA: DI LUAR LINGKUP (PENGEMBANGAN LANJUT)**
+> Berdasarkan keputusan pengguna pada 2026-11-14 (*literal*: "karena keterbatasan alat dan waktu, kami memutuskan untuk tidak jadi menggunakan speaker, jadi audio hanya dari laptop"), audio FPGA (A2) dibatalkan. Audio hanya diputar dari laptop (A1; stream_player.py, WASAPI + disiplin on, tidak diubah). Kode audio yang sudah ada (hdl/audio_pwm.vhd, hdl/audio_fifo.vhd, port audio di hdl/packet_parser.vhd, python/audio_a2.py, python/make_mixed_stream.py, tb dan tes terkait) TIDAK dihapus dan TIDAK diubah; semuanya diberi status "di luar lingkup (pengembangan lanjut), tidak diintegrasikan ke top". Port audio parser dibiarkan tidak terhubung (`open`) di top.vhd.
+
+Sesuai keputusan tim D-5 (2026-10-31), parameter audio hardware sebelumnya dirancang pada **PCM 8-bit 8 kHz mono unsigned**.
+- **Konsekuensi Jalur Output A2 (Audio dari FPGA):** **DIBATALKAN**. Jalur A2 (PWM/earphone) berada di luar lingkup.
 - **Konsekuensi Jalur Output A1 (Audio dari PC Host):**
   - Status Jalur A1: **penilaian pengguna, mata dan telinga: sinkron. Kondisi: laptop, --fake-fpga, --audio-hostapi wasapi --audio-discipline on, tanpa board/OLED/UART**.
   - Pemutaran audio di PC menggunakan berkas audio asli PCM 16-bit 44,1 kHz stereo (`data/audio/bad_apple.wav`) dan **TIDAK terpengaruh oleh D-5**. Jalur A1 tidak memerlukan modul hardware FPGA ini.

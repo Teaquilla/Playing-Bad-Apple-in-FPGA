@@ -238,7 +238,7 @@ Modul `oled_spi.vhd` dirancang sebagai modul daun (*leaf module*) mandiri yang m
 | `CS_SETUP_CYCLES` | `natural` | `3` | Waktu tunggu `CS#` LOW sebelum tepi naik pertama SCLK ($30\text{ ns} \ge 20\text{ ns}$). |
 | `CS_HOLD_CYCLES` | `natural` | `2` | Waktu tunggu `CS#` LOW setelah tepi turun terakhir SCLK ($20\text{ ns} \ge 10\text{ ns}$). |
 
-#### C. Diagram Waktu Teks (ASCII Timing Diagram - SPI Mode 0 Transmisi Byte)
+#### C. Diagram Waktu Teks (DISUSUN ULANG - SPI Mode 0 Transmisi Byte)
 ```text
 Clock 100 MHz   : __|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__|~|__
                    |<-- tCSS -->|                                   |<-- tCSH -->|
@@ -253,6 +253,9 @@ oled_mosi (SDIN): ======X=======< Bit 7 >< Bit 6 >< Bit 5 > ... < Bit 0 >=======
                                 ^        ^
                                 Cuplik 1 Cuplik 2
 ```
+
+*Catatan Perbaikan Patch FSM Serializer (`scratch/oled_spi_4p_diff.patch`):*
+Patch pada sub-FSM serializer clock memajukan tepi naik pertama `SCLK` ke segera setelah waktu tunggu setup CS (`CS_SETUP_CYCLES`) terpenuhi (`SPI_SETUP_CS` langsung berpindah ke `SPI_CLK_HIGH`). Dengan demikian, $t_{\text{CSS}}$ bawaan berubah dari $(\text{setup} + \text{setengah periode SCLK})$ menjadi $\text{CS\_SETUP\_CYCLES} \times 10\text{ ns} = 30\text{ ns}$, memberikan margin $+50\%$ ($+10\text{ ns}$) terhadap batas minimal datasheet $20\text{ ns}$ [DIVERIFIKASI untuk nilai datasheet; penyebab perubahan DIASUMSIKAN bila log run pertama tidak tersedia]. Mutasi yang memverifikasi batas ini adalah Mutasi 7 (`CS_SETUP = 1`, 10 ns) pada `mutasi_oled_spi.txt` baris 332 yang terbukti gagal pada baris 377 dengan pesan `Failure: PELANGGARAN TIMING: CS Setup time tCSS (10000 ps) kurang dari 20 ns!`.
 
 #### D. Hitungan Margin Timing terhadap Batas Datasheet SSD1306
 | Parameter | Nilai Batas Datasheet (Table 13-4) | Karakteristik Terukur FSM `oled_spi` (Klaim RTL, diukur `tb_oled_spi`) | Margin Keamanan | Status Verifikasi Datasheet (Bagian 4q) |
@@ -532,8 +535,8 @@ Terdapat tiga opsi arsitektur framing audio streaming:
     $$L(t) \ge 1.024\text{ Byte}$$
   - Oleh karena itu, Host PC **WAJIB** mengirimkan minimal 1.024 sampel audio awal sebelum atau tepat saat frame video 0 dipicu.
   - Dengan pola paket streaming audio 3 frame ($267, 267, 266\text{ Byte}$), pengiriman 4 paket awal menghasilkan total:
-    $$267 + 267 + 266 + 267 = 1.067\text{ Byte} \ge 1.024\text{ Byte}$$
-    sehingga fase pre-roll tuntas tepat saat frame video pertama dimulai.
+    $$267 + 267 + 267 + 267 = 1.068\text{ Byte} \ge 1.024\text{ Byte}$$
+    sehingga fase pre-roll tuntas tepat saat frame video pertama dimulai. Total payload audio pada berkas mixed_stream_clean.bin adalah 25.068 Byte (94 paket audio; 8 paket pertama berukuran 267, 267, 267, 267, 267, 267, 266, 267 Byte).
 
 #### B. Invarian Host Catch-up
 - **Aturan Integritas Paket Audio Host:**
@@ -586,9 +589,13 @@ Berdasarkan hasil pengujian empiris timing protokol pada `tb_audio_fifo` (Test 1
    Ketika paket yang ditolak selesai, parser mengasertifkan `wr_commit` atau `wr_rollback`, yang secara otomatis mereset `reject_latch <= '0'` dan mengembalikan `w_spec <= w_commit`, menjaga integritas memori BRAM tanpa data korup.
 
 ### 3.6 Implementasi Ekstensi Audio pada `packet_parser.vhd` (Milestone M4)
+> **Status Sub-Sistem Audio FPGA: DI LUAR LINGKUP (PENGEMBANGAN LANJUT)**
+> Berdasarkan keputusan pengguna pada 2026-11-14 (*literal*: "karena keterbatasan alat dan waktu, kami memutuskan untuk tidak jadi menggunakan speaker, jadi audio hanya dari laptop"), audio FPGA (A2) dibatalkan. Audio hanya diputar dari laptop (A1; stream_player.py, WASAPI + disiplin on, tidak diubah). Kode audio yang sudah ada (hdl/audio_pwm.vhd, hdl/audio_fifo.vhd, port audio di hdl/packet_parser.vhd, python/audio_a2.py, python/make_mixed_stream.py, tb dan tes terkait) TIDAK dihapus dan TIDAK diubah; semuanya diberi status "di luar lingkup (pengembangan lanjut), tidak diintegrasikan ke top". Port audio parser dibiarkan tidak terhubung (`open`) di top.vhd.
+
 - **Status Implementasi:** **SELESAI DI SIMULASI** (`sim/tb_parser_audio.vhd`, 7 skenario pengujian lolos 100% byte-exact, 6 uji mutasi tertangkap).
-- **Status Integrasi:** Modul daun mandiri; **BELUM TERINTEGRASI KE `top.vhd`** dan **BELUM DIUJI DI BOARD FISIK BASYS 3**. Seluruh keputusan terbuka (D-16, D-18) **TETAP TERBUKA**.
-- **Kompatibilitas Mundur:** Seluruh port baru memiliki nilai default aman (`'0'` atau `(others => '0')`), sehingga instansiasi lama pada `hdl/top.vhd` dan testbench lama tidak terpengaruh sama sekali.
+- **Status Integrasi:** Modul daun mandiri; **TIDAK DIINTEGRASIKAN KE `top.vhd` (port audio dibiarkan `open`)** dan **DI LUAR LINGKUP BOARD FISIK**.
+- **Kompatibilitas Mundur & Diffstat:** Seluruh port baru memiliki nilai default aman (`'0'` atau `(others => '0')`), sehingga instansiasi lama pada `hdl/top.vhd` dan testbench lama tidak terpengaruh sama sekali.
+  - *Diffstat packet_parser.vhd:* 104 baris ditambah, 13 dihapus, net +91 baris ($325 - 13 + 104 = 416$ baris). Catatan koreksi: menghapus klaim "117 baris baru disisipkan" dan "325 - 13 + 117 = 416" (karena $325 - 13 + 117 = 429$).
 
 #### A. Antarmuka Port Baru Ekstensi Audio
 | Port | Arah | Tipe | Nilai Default | Deskripsi & Protokol |
@@ -602,9 +609,9 @@ Berdasarkan hasil pengujian empiris timing protokol pada `tb_audio_fifo` (Test 1
 | `cnt_audio_packets` | out | `unsigned(15 downto 0)` | `(others => '0')` | Pencacah saturasi 16-bit jumlah paket audio yang sukses diterima dan dikomit. Tidak bertambah untuk paket yang ditolak (`aud_reject`). |
 | `aud_reject` | in | `std_logic` | `'0'` | Sinyal masukan dari `audio_fifo.wr_reject`. Disampel pada siklus clock saat `aud_start = '1'`. Jika aktif, payload dikonsumsi spekulatif tetapi tidak diteruskan ke FIFO (`aud_valid = '0'`) dan `cnt_audio_packets` tidak bertambah [DIASUMSIKAN]. |
 
-#### B. Diagram Waktu Teks (ASCII Timing Diagrams)
+#### B. Diagram Waktu Teks (DISUSUN ULANG - ASCII Timing Diagrams)
 
-##### 1. Penerimaan Paket Audio Normal & Valid (Commit)
+##### 1. Penerimaan Paket Audio Normal & Valid (Commit) (DISUSUN ULANG)
 ```text
 Siklus Clock:     | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10| 11| 12| 13| 14| 15|
 ------------------+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
@@ -623,7 +630,7 @@ cnt_audio_packets:| N                                         | N + 1         |
 - `aud_commit` terbit minimal 1 siklus clock setelah `aud_valid` terakhir (pada state `READ_CHECKSUM` setelah verifikasi lolos).
 - `aud_valid` tidak pernah bocor ke antarmuka video (`m_axis_valid = '0'`, `packet_valid = '0'`).
 
-##### 2. Penolakan Paket Audio Akibat Buffer Penuh (`aud_reject = '1'`)
+##### 2. Penolakan Paket Audio Akibat Buffer Penuh (`aud_reject = '1'`) (DISUSUN ULANG)
 ```text
 Siklus Clock:     | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10| 11| 12| 13| 14| 15|
 ------------------+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
@@ -638,12 +645,15 @@ aud_rollback:     |___________________________________________________________|
 rx_fifo commit:   |___________________________________________/---\___________| (Konsumsi bus)
 cnt_audio_packets:| N                                                         | N (Tetap)
 ```
+*Catatan Koreksi Logika aud_reject (packet_parser.vhd baris 160-161):*
+RTL mencuplik sinyal masukan `aud_reject` tepat pada siklus clock saat `aud_start = '1'` (`aud_rejected_reg <= aud_reject;`). Bagian ini berstatus DI LUAR LINGKUP (PENGEMBANGAN LANJUT).
+
 *Perilaku:*
 - Ketika `aud_reject = '1'` saat `aud_start = '1'`, register `aud_rejected_reg` aktif mengunci status penolakan.
 - Payload tetap dibaca dari `rx_fifo` agar sinkronisasi bus serial tidak macet, namun `aud_valid` ditekan tetap '0'.
 - Setelah verifikasi EOF dan checksum valid, `rx_fifo` dikomit agar paket terbuang bersih, tetapi `aud_commit` tidak dipancarkan ke `audio_fifo` dan `cnt_audio_packets` tidak bertambah.
 
-##### 3. Pembatalan Paket Audio (Galat Checksum / Timeout Watchdog)
+##### 3. Pembatalan Paket Audio (Galat Checksum / Timeout Watchdog) (DISUSUN ULANG)
 ```text
 Siklus Clock:     | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10| 11| 12| 13| 14| 15|
 ------------------+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
@@ -745,11 +755,11 @@ Status keputusan desain teknis Milestone 4 per tanggal 2026-11-02:
 
 | ID | Topik Keputusan | Pilihan Alternatif | Status | Keputusan & Catatan Arsitektur |
 |---|---|---|---|---|
-| **D-14** | Protokol Framing Paket Audio Streaming | **(A)** SOF khusus `0x55AB` untuk paket audio terpisah.<br>**(B)** Multiplexing audio dan video dalam satu paket gabungan.<br>**(C)** Tipe paket di bit tertinggi `FRAME_ID(15)` dengan SOF `0x55 0xAA 0x5A` standar. | **Disetujui pengguna 2026-11-02** | **Opsi (C) Terpilih:** Bit 15 `FRAME_ID = 1` menandai paket audio; SOF tetap `0x55 0xAA 0x5A`. Pencacah `VALID_FRAMES` serta register `FIRST_FRAME_ID` dan `LAST_FRAME_ID` tetap HANYA menghitung paket video; pencacah paket audio dibuat terpisah. |
-| **D-15** | Arsitektur Port B Frame Buffer BRAM | **(A)** Arbitrase Time-Division Multiplexing (TDM) pada Port B tunggal.<br>**(B)** Duplikasi instance frame buffer BRAM (+1 RAMB18E1). | **Disetujui pengguna 2026-11-02** | **Opsi (B) Terpilih:** Duplikasi instance frame buffer BRAM untuk pembacaan OLED (+1 RAMB18E1). Jalur subsistem `ascii_sink` tetap utuh tanpa modifikasi apa pun. |
-| **D-16** | Parameter Komponen Filter Analog RC Audio PMOD | **(A)** Usulan filter RC satu tingkat: $R = 2,2\text{ k}\Omega, C = 22\text{ nF}$ ($f_c \approx 3,29\text{ kHz}$, arus pin $3,3\text{ V} / 2,2\text{ k}\Omega \approx 1,5\text{ mA} \ll 8\text{ mA}$).<br>**(B)** Filter RC dua tingkat (*2nd-order passive*) untuk pelemahan carrier lebih tajam. | **TERBUKA** | Menunggu komponen fisik audio tiba untuk pengujian osiloskop dan uji dengar langsung di board Basys 3. Usulan $R = 2,2\text{ k}\Omega, C = 22\text{ nF}$ berstatus usulan desain [DIASUMSIKAN], bukan final, dan wajib diverifikasi pengguna manusia sebelum koneksi fisik. |
-| **D-17** | Mekanisme Kompensasi Drift Buffer Audio FIFO | **(A)** Kontrol laju audio murni dari Host PC (mengatur interval pengiriman paket audio).<br>**(B)** Penyesuaian adaptif lokal di FPGA (drop/insert 1 sampel saat isi FIFO melewati ambang batas >80% atau <20%, dengan pre-roll lead time 512 B). | **Disetujui pengguna 2026-11-02** | **Opsi (B) Terpilih:** Penyesuaian adaptif lokal di FPGA dengan FIFO 2.048 B (1 RAMB18), pre-roll 1.024 B (128 ms), watermark 20%/80% (410/1.638 B, kapasitas 256 ms); pencacah underflow, overflow, dan slip (`cnt_audio_drop`, `cnt_audio_repeat`) dapat dibaca oleh telemetri. |
-| **D-18** | Resinkronisasi Audio-Video Pasca-Buffer Underflow | **(A)** Indeks paket audio pada `FRAME_ID(14:0)`, FPGA membuang (*skip*) sampel basi.<br>**(B)** Reset pointer FIFO lokal (`flush`) dan host PC mengirim ulang dari posisi video saat ini.<br>**(C)** Tanpa pemulihan aktif (hanya mengandalkan slip lambat). | **TERBUKA** | Ditulis sebagai keputusan **TERBUKA**; tidak ada opsi yang dipilih. Masalah teknis: underflow selama $T$ (misal $100\text{ ms}$) membuat audio tertinggal permanen sebesar $T$ terhadap video jika seluruh paket audio dikirim tanpa drop; slip lokal 20 sampel/s memerlukan waktu $40\text{ detik}$ untuk mengejar lag 100 ms. |
+| **D-14** | Protokol Framing Paket Audio Streaming | **(A)** SOF khusus `0x55AB` untuk paket audio terpisah.<br>**(B)** Multiplexing audio dan video dalam satu paket gabungan.<br>**(C)** Tipe paket di bit tertinggi `FRAME_ID(15)` dengan SOF `0x55 0xAA 0x5A` standar. | **TIDAK BERLAKU: audio FPGA dibatalkan (keputusan pengguna 2026-11-14, "karena keterbatasan alat dan waktu, kami memutuskan untuk tidak jadi menggunakan speaker, jadi audio hanya dari laptop")** | Modul daun packet_parser.vhd tetap memuat ekstensi audio untuk pengembangan lanjut, namun port audio dibiarkan open di top.vhd. |
+| **D-15** | Arsitektur BRAM frame buffer untuk layar OLED | **(A)** Arbitrase Time-Division Multiplexing (TDM) pada Port B tunggal.<br>**(B)** Duplikasi PENYIMPANAN BRAM untuk OLED, kendali bank dan swap tunggal (+1 RAMB18E1). | **Ditutup pada Opsi (b) (2026-11-02 & 2026-11-14)** | **Opsi (B) Terpilih:** Duplikasi penyimpanan BRAM kedua (`mem2`) di dalam `frame_buffer.vhd` untuk pembacaan OLED `oled_spi.vhd` (+1 RAMB18E1). Jalur subsistem `ascii_sink` tetap utuh tanpa modifikasi apa pun. |
+| **D-16** | Parameter Komponen Filter Analog RC Audio PMOD | **(A)** Usulan filter RC satu tingkat.<br>**(B)** Filter RC dua tingkat. | **TIDAK BERLAKU: audio FPGA dibatalkan (keputusan pengguna 2026-11-14, "karena keterbatasan alat dan waktu, kami memutuskan untuk tidak jadi menggunakan speaker, jadi audio hanya dari laptop")** | Rangkaian filter RC dan earphone ditiadakan dari target proyek. |
+| **D-17** | Mekanisme Kompensasi Drift Buffer Audio FIFO | **(A)** Kontrol laju audio murni dari Host PC.<br>**(B)** Penyesuaian adaptif lokal di FPGA. | **TIDAK BERLAKU: audio FPGA dibatalkan (keputusan pengguna 2026-11-14, "karena keterbatasan alat dan waktu, kami memutuskan untuk tidak jadi menggunakan speaker, jadi audio hanya dari laptop")** | Modul audio_fifo.vhd berstatus di luar lingkup (pengembangan lanjut) dan tidak diintegrasikan ke top.vhd. |
+| **D-18** | Resinkronisasi Audio-Video Pasca-Buffer Underflow | **(A)** Indeks paket audio.<br>**(B)** Reset pointer FIFO.<br>**(C)** Tanpa pemulihan aktif. | **TIDAK BERLAKU: audio FPGA dibatalkan (keputusan pengguna 2026-11-14, "karena keterbatasan alat dan waktu, kami memutuskan untuk tidak jadi menggunakan speaker, jadi audio hanya dari laptop")** | Masalah resinkronisasi AV buffer FPGA tidak berlaku karena audio diputar dari laptop pemegang waktu. |
 
 ---
 

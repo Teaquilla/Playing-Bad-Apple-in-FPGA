@@ -12,8 +12,8 @@ Dokumen ringkasan eksekutif status terkini proyek, metrik implementasi, keputusa
 | **M1** | Klip ROM On-Chip, Dekoder RLE, Pipeline ASCII Terminal, & Bitstream | **SELESAI\*** | Seluruh modul HDL terverifikasi *byte-exact* 90 frame (95.310 B) di RTL & Netlist Pasca-Sintesis. Bitstream terkompresi 4,40 Mbit. <br>\**Catatan: Pengujian fisik di board Basys 3 tertunda ketersediaan hardware.* |
 | **M2a** | Jalur Data Penerima Serial Streaming & Dekoder RLE (UART RX, FIFO 2KB, Parser, RLE Decoder) | **SELESAI** | 4 modul HDL lolos sintesis OOC (total 374 LUT, 320 FF, 1x RAMB18E1). 12 testbench xsim PASS (100%), termasuk tb_stream_rx byte-exact 90 frame & pengujian vektor galat. Integrasi ke top dijadwalkan pada M2b. |
 | **M2b** | Integrasi Top (`STREAMING_MODE`), Buffer Swap Tertunda, & Host Streamer PC | **tag m2b-boardless dibuat di aa81787 (2026-11-01); verifikasi independen pengguna 2026-11-01: sim_all.ps1 13 PASS dan pytest 44 lulus dijalankan pada tree yang python/stream_player.py-nya termodifikasi (belum di-commit); verifikasi Python pada tag persis: belum** | Seluruh 13 testbench xsim lolos (100% PASS), integrasi top.vhd streaming & delayed swap terverifikasi byte-exact 90 frame dan vektor galat. Catatan integritas berkas: tag `m2b-boardless` memuat `data/golden/ascii.bin` versi LF (93.870 B di git object store) [DIVERIFIKASI: `git cat-file -s`]; membutuhkan `core.autocrlf=true` di lingkungan Windows untuk menghasilkan 95.310 B [DIASUMSIKAN: butuh autocrlf=true untuk lulus]. Pada cabang `m3-wip`, `.gitattributes` telah dinormalisasi ke 95.310 B [DIVERIFIKASI]. |
-| **M3** | Output Audio PWM / PDM & Pengkabelan Mono | **penilaian pengguna, mata dan telinga: sinkron. Kondisi: laptop, --fake-fpga, --audio-hostapi wasapi --audio-discipline on, tanpa board/OLED/UART** | Jalur A1 (`audio_player.py`, sinkronisasi `AudioClock`, interpolasi, fallback stall) telah diimplementasikan; celah 1.470 sampel ada di timeline kontainer dan tidak diisi ffmpeg (WAV = 9.380 x 1.024 sampel kontigu); sampel ke-k (k >= 1.024) berada di waktu kontainer k/44100 + 33,33 ms; frame n di 33,33 ms + n/30; maka frame n sejajar WAV pada n/30 [DIASUMSIKAN]; default --av-offset-ms = 0 [DIASUMSIKAN]. Video tampil di terminal sekitar [waktu kirim paket + waktu keluaran ASCII ~11,5 ms + latensi render terminal] setelah dikirim, sehingga offset kalibrasi di board kemungkinan negatif [DIASUMSIKAN sampai ada board]. Jalur A2 (RTL FPGA PWM 8-bit 8 kHz & rangkaian RC PMOD) menunggu tinjauan rangkaian fisik. |
-| **M4** | Integrasi Menyeluruh, Demonstrasi Penuh, & Finalisasi Laporan | **MODUL DAUN SIMULASI SELESAI** | Modul daun `audio_pwm` (Varian B) dan `audio_fifo` (2 KB BRAM) telah diimplementasikan dan selesai pada simulasi (`tb_audio_pwm` dan `tb_audio_fifo` 100% PASS). Belum terintegrasi ke pipeline top-level / `packet_parser`; belum diuji di board fisik. Modul `oled_spi` ditunda menunggu pemeriksaan tabel init. |
+| **M3** | Output Audio Laptop (A1) & Status Audio FPGA (A2) | **Audio FPGA DIBATALKAN; Audio Laptop SINKRON (A1)** | Berdasarkan keputusan pengguna 2026-11-14 ("karena keterbatasan alat dan waktu, kami memutuskan untuk tidak jadi menggunakan speaker, jadi audio hanya dari laptop"), audio FPGA (A2) dibatalkan. Audio diputar eksklusif dari laptop (A1; stream_player.py, WASAPI + disiplin on). Modul daun audio_pwm dan audio_fifo berstatus "di luar lingkup (pengembangan lanjut), tidak diintegrasikan ke top". |
+| **M4** | Integrasi Menyeluruh, Demonstrasi Penuh, & Finalisasi Laporan | **DALAM PROSES (BAGIAN 4s: INTEGRASI OLED SIMULASI)** | Integrasi OLED SPI SSD1306 pada top.vhd dan frame_buffer.vhd (duplikasi BRAM Port B2, mem2) untuk simulasi. Audio FPGA (A2) dibatalkan / di luar lingkup. |
 
 ---
 
@@ -186,17 +186,17 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context` pada `xc
 - **D-9:** Pemutaran standalone dari SPI flash ditutup sebagai target lanjutan.
 - **D-11:** Rasio aspek video 2:1 native (1280x640), resize 10:1 tanpa bilah hitam.
 - **D-12:** Jalur arsitektur video penuh utama adalah **Streaming UART RX dari PC**.
-- **D-5:** Audio PCM 8-bit 8 kHz mono [DIVERIFIKASI: keputusan tertulis tim 2026-10-31].
+- **D-5:** TIDAK BERLAKU: audio FPGA dibatalkan (keputusan pengguna 2026-11-14). Audio laptop (A1) tetap aktif.
 - **D-13:** Evaluasi stop bit UART RX pada `clk_cnt = CLKS_PER_BIT - 1` untuk toleransi baud penuh.
 - **D-Ramp / D-Bin:** Ramp ASCII A (`" .:-=+*#@"`) & Binerisasi Ambang Tetap (128).
 
 ### B. Keputusan Terbuka (Open)
 - **D-10 (Kontainer Media):** Struktur paket streaming audio/video (diputuskan di M2: video frame RLE mandiri, audio stream disisipkan atau interleave).
-- **D-14:** Format kontainer streaming gabungan (video FID 0x0000..0x7FFF, audio FID 0x8000..0xFFFF). Status: Diimplementasikan pada daun `packet_parser` dan diverifikasi pada `tb_parser_audio` (7 skenario). Tetap terbuka untuk integrasi penuh top-level dan board.
-- **D-15:** Laju sampling dan ukuran paket audio (8 kHz mono, 267/267/266 B per frame video 30 FPS). Selesai di simulasi; tetap terbuka untuk integrasi top-level.
-- **D-16:** Rangkaian analog eksternal audio PWM A2 (low-pass filter RC + kapasitor DC-blocking). Status: Menunggu peninjauan manusia dan pemilihan nilai komponen fisik.
-- **D-17:** Kedalaman buffer audio dan kebijakan slip 2-arah. Diimplementasikan pada daun `audio_fifo` (2048 B, ambang 410/512 dan 1638/1536). Tetap terbuka untuk integrasi top-level.
-- **D-18:** Kebijakan jeda transmisi / burst UART RX PC-to-FPGA. Tetap terbuka sampai ada pengujian board fisik.
+- **D-14:** TIDAK BERLAKU: audio FPGA dibatalkan (keputusan pengguna 2026-11-14). Ekstensi audio pada packet_parser.vhd berstatus di luar lingkup (pengembangan lanjut), port audio dibiarkan open di top.vhd.
+- **D-15:** DITUTUP pada Opsi (b) (duplikasi PENYIMPANAN BRAM untuk OLED, kendali bank dan swap tunggal) (keputusan tim 2026-11-02 & 2026-11-14).
+- **D-16:** TIDAK BERLAKU: audio FPGA dibatalkan (keputusan pengguna 2026-11-14).
+- **D-17:** TIDAK BERLAKU: audio FPGA dibatalkan (keputusan pengguna 2026-11-14).
+- **D-18:** TIDAK BERLAKU: audio FPGA dibatalkan (keputusan pengguna 2026-11-14).
 
 ---
 
