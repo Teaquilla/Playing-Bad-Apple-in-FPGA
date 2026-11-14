@@ -9,12 +9,12 @@
 --     - Periode SCLK >= 100 ns (T_CYCLE_MIN_NS).
 --     - Lebar SCLK LOW >= 20 ns (T_CLKL).
 --     - Lebar SCLK HIGH >= 20 ns (T_CLKH).
---     - Setup CS ke SCLK pertama >= 20 ns (tCSS).
---     - Hold CS dari SCLK terakhir >= 10 ns (tCSH).
---     - Setup D/C sebelum SCLK >= 15 ns (tAS).
---     - Hold D/C setelah SCLK >= 15 ns (tAH).
---     - Setup SDIN sebelum SCLK >= 15 ns (tDSW).
---     - Hold SDIN setelah SCLK >= 15 ns (tDHW).
+--     - Setup CS ke SCLK pertama >= 20 ns (tCSS, T_CSS_MIN_NS).
+--     - Hold CS dari SCLK terakhir >= 10 ns (tCSH, T_CSH_MIN_NS).
+--     - Setup D/C sebelum SCLK >= 15 ns (tAS, T_AS_MIN_NS).
+--     - Hold D/C setelah SCLK ke-8 >= 15 ns (tAH, T_AH_MIN_NS; asersi aktif di spi_monitor_proc).
+--     - Setup SDIN sebelum SCLK >= 15 ns (tDSW, T_DSW_MIN_NS).
+--     - Hold SDIN setelah tiap SCLK >= 15 ns (tDHW, T_DHW_MIN_NS; asersi aktif di spi_monitor_proc).
 -- (c) Pola citra uji:
 --     - Pola 1: Piksel tunggal di (0,0), (127,63), dan (5,9).
 --     - Pola 2: Garis diagonal.

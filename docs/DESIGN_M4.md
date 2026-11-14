@@ -59,11 +59,18 @@ Berikut adalah perbandingan parameter timing AC terhadap perancangan FSM master 
 >    Tabel 13-1 mencantumkan frekuensi osilator internal $F_{\text{OSC}}$: min $333\text{ kHz}$, tipikal $370\text{ kHz}$, maks $407\text{ kHz}$ (pada $V_{\text{DD}} = 2,8\text{ V}$).
 >    Laju frame pemindaian panel internal OLED dihitung dengan formula:
 >    $$F_{\text{FRM}} = F_{\text{OSC}} \times \frac{1}{D \times K \times 64}$$
->    Dengan rasio pembagi $D = 1$ dan $K = 54$ display clock per baris (kondisi reset bawaan perintah `0xD5, 0x80`):
->    $$F_{\text{FRM, typ}} = \frac{370.000\text{ Hz}}{1 \times 54 \times 64} = \frac{370.000}{3.456} \approx 107,06\text{ Hz}\ (\text{periode refresh internal } \approx 9,34\text{ ms})$$
->    [Perhitungan; DIASUMSIKAN].
+>    Datasheet baris 792 menyatakan bahwa pada kondisi power-on reset, nilai $K = \text{Phase 1} + \text{Phase 2} + \text{BANK0 pulse width} = 2 + 2 + 50 = 54$. Pada kondisi reset default ini ($D=1, K=54$):
+>    $$F_{\text{FRM, reset}} = \frac{370.000\text{ Hz}}{1 \times 54 \times 64} = \frac{370.000}{3.456} \approx 107,06\text{ Hz}\quad (\text{periode refresh internal } \approx 9,34\text{ ms})$$
+>    Namun, pada inisialisasi yang menggunakan perintah `0xD9, 0xF1` (Phase 1 = 1 DCLK, Phase 2 = 15 DCLK):
+>    $$K = 1 + 15 + 50 = 66\quad \mathbf{[DIASUMSIKAN:\ perluasan\ rumus]}$$
+>    Sehingga laju refresh frame aktual panel internal menjadi:
+>    - Tipikal ($F_{\text{OSC}} = 370\text{ kHz}$):
+>      $$F_{\text{FRM, typ}} = \frac{370.000\text{ Hz}}{1 \times 66 \times 64} = \frac{370.000}{4.224} \approx 87,59\text{ Hz} \approx 87,6\text{ Hz}\quad (\text{periode refresh } \approx 11,42\text{ ms} \approx 11,4\text{ ms})$$
+>    - Minimum ($F_{\text{OSC}} = 333\text{ kHz}$): $F_{\text{FRM}} = \frac{333.000}{4.224} \approx 78,84\text{ Hz} \approx 78,8\text{ Hz}$ (periode $\approx 12,68\text{ ms}$).
+>    - Maksimum ($F_{\text{OSC}} = 407\text{ kHz}$): $F_{\text{FRM}} = \frac{407.000}{4.224} \approx 96,35\text{ Hz} \approx 96,4\text{ Hz}$ (periode $\approx 10,38\text{ ms}$).
+>    [Perhitungan; DIASUMSIKAN]. Catatan: Nilai `0xD9, 0xF1` adalah konvensi pustaka modul, bukan kebutuhan datasheet.
 > 3. **Risiko Efek Robek Citra (Tearing Risk pada GDDRAM):**
->    Penulisan burst SPI dari FPGA membutuhkan durasi $\approx 1,38\text{ ms}$ per frame (pada interval 30 FPS = $33,33\text{ ms}$). Karena penulisan SPI dilakukan secara asinkron tanpa pin sinkronisasi pemindaian (`FR` atau `TE` tidak tersedia pada header SPI 7-pin modul SSD1306 standar), penulisan data grafis ke GDDRAM berpotensi beririsan dengan pemindaian refresh internal panel (~9,3 ms), memunculkan potensi *frame tearing* [DIASUMSIKAN; pembuktian dilakukan saat uji board fisik].
+>    Penulisan burst SPI dari FPGA membutuhkan durasi $\approx 1,38\text{ ms}$ per frame (pada interval 30 FPS = $33,33\text{ ms}$). Durasi transfer $1,38\text{ ms}$ tersebut setara dengan $\approx 12\%$ dari periode refresh internal panel ($11,4\text{ ms}$) [DIASUMSIKAN]. Karena penulisan SPI dilakukan secara asinkron tanpa pin sinkronisasi pemindaian (`FR` atau `TE` tidak tersedia pada header SPI 7-pin modul SSD1306 standar), penulisan data grafis ke GDDRAM berpotensi beririsan dengan pemindaian refresh internal panel (~11,4 ms), memunculkan potensi *frame tearing* [DIASUMSIKAN; pembuktian dilakukan saat uji board fisik].
 
 ### 1.3 Analisis Anggaran Waktu Transfer per Frame (Frame Budget)
 - **Ukuran Data Grafis Layar 128×64:**
@@ -111,7 +118,7 @@ Tabel berikut mencantumkan setiap byte perintah konfigurasi inisialisasi FSM mod
 | 12 | `0xD9`, `0xF1` | Set Pre-charge Period (Phase 1 = 1 DCLK, Phase 2 = 15 DCLK) | Hal. 32 (Table 9-1 baris 2113–2119) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (0 tidak valid; reset 2h) |
 | 13 | `0xDB`, `0x20` | Set VCOMH Deselect Level (~0,77 x VCC) | Hal. 32 (Table 9-1 baris 2140) & Hal. 43 (§10.1.19 baris 4828) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (00h ~0,65, 20h ~0,77 RESET, 30h ~0,83) |
 | 14 | `0xA4` | Entire Display ON (Resume to RAM Content) | Hal. 28 (Table 9-1 baris 1113) & Hal. 37 (§10.1.9 baris 2606) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (pada tampilan normal data RAM 1 = piksel menyala) |
-| 15 | `0xA6` | Set Normal Display | Hal. 28 (Table 9-1 baris 1140) & Hal. 37 (§10.1.10 baris 2613) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (pada tampilan normal data RAM 1 = piksel menyala) |
+| 15 | `0xA6` | Set Normal Display | Hal. 28 (Table 9-1 baris 1140) & Hal. 37 (§10.1.10 baris 2612) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (pada tampilan normal data RAM 1 = piksel menyala) |
 | 16 | `0xAF` | Display ON (Normal Mode) | Hal. 28 (Table 9-1 baris 1176–1180) & Hal. 37 (§10.1.12 baris 2623) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
 | 17 | `0x21`, `0x00`, `0x7F` | Set Column Address (Rentang kolom $0..127$) | Hal. 30 (Table 9-1 baris 1712–1717) & Hal. 35 (§10.1.4 baris 2483) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
 | 18 | `0x22`, `0x00`, `0x07` | Set Page Address (Rentang halaman $0..7$) | Hal. 31 (Table 9-1 baris 1785–1790) & Hal. 36 (§10.1.5 baris 2504) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
@@ -652,6 +659,12 @@ cnt_audio_packets:| N                                                         | 
 *Perilaku:*
 - Jika checksum tidak cocok, atau watchdog timer (50 ms pada 100 MHz, generic `TIMEOUT_CYCLES`) habis saat transmisi terpotong, pulsa `aud_rollback <= '1'` dipancarkan serentak dengan `fifo_rollback <= '1'`.
 - `audio_fifo` memulihkan penunjuk tulis spekulatif (`w_spec <= w_commit`), membuang seluruh sampel korup/parsial.
+
+##### 4. Analisis Risiko Penolakan Paket Audio (Tautan Isu D-18)
+- **Perilaku Discard:** Paket audio yang ditolak (`aud_reject = '1'` saat `aud_start = '1'`) tetap dikonsumsi dari `rx_fifo` agar sinkronisasi framing bus serial tidak macet, namun seluruh byte muatannya dibuang (`aud_valid` ditekan '0', `aud_commit` tidak diterbitkan).
+- **Risiko Desinkronisasi AV (Audio Melompat Maju):** Pembuangan paket yang ditolak ini menyebabkan aliran audio melompat maju terhadap aliran video (*audio skips forward relative to video*).
+- **Deteksi:** Kondisi ini di sisi perangkat keras hanya dapat terdeteksi melalui pencacah overflow/reject (`cnt_overflow` atau selisih paket audio).
+- **Kewajiban Host (Flow Control):** Host pengirim (perangkat lunak streaming) wajib menjaga agar total byte muatan audio yang dikirimkan tidak pernah melebihi sisa ruang kosong FIFO audio (merujuk pada mitigasi desain D-18). Belum ada keputusan penambahan port backpressure perangkat keras ke host UART.
 
 ## 4. Alokasi Pin PMOD (Rencana Pinout `basys3.xdc`)
 
