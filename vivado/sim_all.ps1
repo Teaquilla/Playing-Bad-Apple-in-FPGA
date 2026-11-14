@@ -140,6 +140,13 @@ $testSuites = @(
         Tb      = "sim/tb_oled_spi.vhd"
         Top     = "tb_oled_spi"
         PassKey = "TEST PASSED: tb_oled_spi"
+    },
+    @{
+        Name    = "tb_parser_audio"
+        Hdl     = @("hdl/uart_rx.vhd", "hdl/rx_fifo.vhd", "hdl/packet_parser.vhd", "hdl/audio_fifo.vhd", "hdl/rle_decoder.vhd")
+        Tb      = "sim/tb_parser_audio.vhd"
+        Top     = "tb_parser_audio"
+        PassKey = "TEST PASSED: tb_parser_audio"
     }
 )
 

@@ -41,7 +41,17 @@ entity packet_parser is
         cnt_valid_frames  : out unsigned(15 downto 0);
         cnt_chk_errors    : out unsigned(15 downto 0);
         cnt_len_errors    : out unsigned(15 downto 0);
-        cnt_resyncs       : out unsigned(15 downto 0)
+        cnt_resyncs       : out unsigned(15 downto 0);
+
+        -- Port Ekstensi Audio (Milestone M4)
+        aud_start         : out std_logic := '0';
+        aud_len           : out unsigned(10 downto 0) := (others => '0');
+        aud_valid         : out std_logic := '0';
+        aud_data          : out std_logic_vector(7 downto 0) := (others => '0');
+        aud_commit        : out std_logic := '0';
+        aud_rollback      : out std_logic := '0';
+        cnt_audio_packets : out unsigned(15 downto 0) := (others => '0');
+        aud_reject        : in  std_logic := '0'
     );
 end entity packet_parser;
 
@@ -60,6 +70,7 @@ architecture rtl of packet_parser is
         CHECK_LEN,
         DISPATCH_PAYLOAD,
         WAIT_PAYLOAD_READY,
+        DISPATCH_AUDIO,
         READ_EOF,
         READ_CHECKSUM
     );
@@ -83,13 +94,20 @@ architecture rtl of packet_parser is
     signal len_cnt : unsigned(15 downto 0) := (others => '0');
     signal res_cnt : unsigned(15 downto 0) := (others => '0');
 
+    -- Sinyal kontrol dan register ekstensi audio
+    signal is_audio_pkt     : std_logic := '0';
+    signal aud_active       : std_logic := '0';
+    signal aud_rejected_reg : std_logic := '0';
+    signal cnt_aud          : unsigned(15 downto 0) := (others => '0');
+
     signal had_garbage : std_logic := '0';
 begin
-    frame_id_out     <= frame_id_reg;
-    cnt_valid_frames <= val_cnt;
-    cnt_chk_errors   <= chk_cnt;
-    cnt_len_errors   <= len_cnt;
-    cnt_resyncs      <= res_cnt;
+    frame_id_out      <= frame_id_reg;
+    cnt_valid_frames  <= val_cnt;
+    cnt_chk_errors    <= chk_cnt;
+    cnt_len_errors    <= len_cnt;
+    cnt_resyncs       <= res_cnt;
+    cnt_audio_packets <= cnt_aud;
 
     process(clk)
     begin
@@ -115,6 +133,16 @@ begin
                 len_cnt       <= (others => '0');
                 res_cnt       <= (others => '0');
                 had_garbage   <= '0';
+                cnt_aud          <= (others => '0');
+                is_audio_pkt     <= '0';
+                aud_active       <= '0';
+                aud_rejected_reg <= '0';
+                aud_start        <= '0';
+                aud_len          <= (others => '0');
+                aud_valid        <= '0';
+                aud_data         <= (others => '0');
+                aud_commit       <= '0';
+                aud_rollback     <= '0';
             else
                 -- Pulsa default 1-siklus
                 fifo_rd_req   <= '0';
@@ -123,6 +151,15 @@ begin
                 fifo_rollback <= '0';
                 packet_valid  <= '0';
                 packet_error  <= '0';
+                aud_start     <= '0';
+                aud_valid     <= '0';
+                aud_commit    <= '0';
+                aud_rollback  <= '0';
+
+                -- Evaluasi sinyal masukan aud_reject saat aud_start aktif
+                if aud_start = '1' then
+                    aud_rejected_reg <= aud_reject;
+                end if;
 
                 -- Timeout watchdog untuk paket yang terpotong di tengah jalan
                 if (return_state >= READ_FID_H and return_state <= READ_CHECKSUM) or 
@@ -133,6 +170,10 @@ begin
                             packet_error  <= '1';
                             len_cnt       <= len_cnt + 1;
                             fifo_rollback <= '1';
+                            if aud_active = '1' then
+                                aud_rollback <= '1';
+                                aud_active   <= '0';
+                            end if;
                             return_state  <= HUNT_SOF_0;
                             state         <= IDLE;
                         else
@@ -196,8 +237,11 @@ begin
                     when HUNT_SOF_2 =>
                         if cur_byte = x"5A" then
                             -- SOF lengkap terdeteksi!
-                            fifo_mark_sof <= '1';
-                            chk_accum     <= (others => '0');
+                            fifo_mark_sof    <= '1';
+                            chk_accum        <= (others => '0');
+                            is_audio_pkt     <= '0';
+                            aud_active       <= '0';
+                            aud_rejected_reg <= '0';
                             if had_garbage = '1' then
                                 res_cnt     <= res_cnt + 1;
                                 had_garbage <= '0';
@@ -249,9 +293,21 @@ begin
                             return_state  <= HUNT_SOF_0;
                             state         <= IDLE;
                         else
-                            bytes_left   <= payload_len;
-                            return_state <= DISPATCH_PAYLOAD;
-                            state        <= FETCH_BYTE;
+                            bytes_left <= payload_len;
+                            if frame_id_reg(15) = '1' then
+                                -- Paket Audio (FRAME_ID bit 15 = 1)
+                                is_audio_pkt <= '1';
+                                aud_active   <= '1';
+                                aud_start    <= '1';
+                                aud_len      <= to_unsigned(payload_len, 11);
+                                return_state <= DISPATCH_AUDIO;
+                                state        <= FETCH_BYTE;
+                            else
+                                -- Paket Video (FRAME_ID bit 15 = 0)
+                                is_audio_pkt <= '0';
+                                return_state <= DISPATCH_PAYLOAD;
+                                state        <= FETCH_BYTE;
+                            end if;
                         end if;
 
                     -- 3. Penyaluran Payload ke Dekoder RLE
@@ -282,6 +338,23 @@ begin
                             end if;
                         end if;
 
+                    -- 3b. Penyaluran Payload Audio ke FIFO Audio
+                    when DISPATCH_AUDIO =>
+                        chk_accum <= chk_accum xor cur_byte;
+                        if aud_rejected_reg = '0' then
+                            aud_valid <= '1';
+                            aud_data  <= cur_byte;
+                        end if;
+
+                        if bytes_left = 1 then
+                            return_state <= READ_EOF;
+                            state        <= FETCH_BYTE;
+                        else
+                            bytes_left   <= bytes_left - 1;
+                            return_state <= DISPATCH_AUDIO;
+                            state        <= FETCH_BYTE;
+                        end if;
+
                     -- 4. Verifikasi EOF (0xED)
                     when READ_EOF =>
                         if cur_byte /= x"ED" then
@@ -290,6 +363,10 @@ begin
                             res_cnt       <= res_cnt + 1;
                             packet_error  <= '1';
                             fifo_rollback <= '1';
+                            if aud_active = '1' then
+                                aud_rollback <= '1';
+                                aud_active   <= '0';
+                            end if;
                             return_state  <= HUNT_SOF_0;
                             state         <= IDLE;
                         else
@@ -302,10 +379,20 @@ begin
                     when READ_CHECKSUM =>
                         if cur_byte = chk_accum then
                             -- Paket 100% Valid!
-                            packet_valid <= '1';
                             fifo_commit  <= '1';
-                            val_cnt      <= val_cnt + 1;
                             had_garbage  <= '0';
+                            if is_audio_pkt = '1' then
+                                if aud_rejected_reg = '0' then
+                                    aud_commit <= '1';
+                                    if cnt_aud /= x"FFFF" then
+                                        cnt_aud <= cnt_aud + 1;
+                                    end if;
+                                end if;
+                                aud_active <= '0';
+                            else
+                                packet_valid <= '1';
+                                val_cnt      <= val_cnt + 1;
+                            end if;
                             return_state <= HUNT_SOF_0;
                             state        <= IDLE;
                         else
@@ -313,6 +400,10 @@ begin
                             chk_cnt       <= chk_cnt + 1;
                             packet_error  <= '1';
                             fifo_rollback <= '1';
+                            if aud_active = '1' then
+                                aud_rollback <= '1';
+                                aud_active   <= '0';
+                            end if;
                             return_state  <= HUNT_SOF_0;
                             state         <= IDLE;
                         end if;
