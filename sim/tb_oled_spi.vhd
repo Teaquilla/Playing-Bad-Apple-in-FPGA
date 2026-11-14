@@ -40,17 +40,19 @@ architecture sim of tb_oled_spi is
     -- Konstanta Clock 100 MHz
     constant CLK_PERIOD : time := 10 ns;
 
-    -- Konstanta Batas Timing Datasheet (Rev 1.1 Hal. 52 & Hal. 49)
-    constant T_RES_MIN_NS   : time := 3000 ns; -- tRES >= 3 us
-    constant T_CYCLE_MIN_NS : time := 100 ns;  -- tcycle >= 100 ns (DIASUMSIKAN)
-    constant T_CLKL_MIN_NS  : time := 20 ns;   -- tCLKL >= 20 ns (DIASUMSIKAN)
-    constant T_CLKH_MIN_NS  : time := 20 ns;   -- tCLKH >= 20 ns (DIASUMSIKAN)
-    constant T_CSS_MIN_NS   : time := 20 ns;   -- tCSS >= 20 ns [DIVERIFIKASI: baris 5683]
-    constant T_CSH_MIN_NS   : time := 10 ns;   -- tCSH >= 10 ns [DIVERIFIKASI: baris 5684]
-    constant T_AS_MIN_NS    : time := 15 ns;   -- tAS >= 15 ns (DIASUMSIKAN)
-    constant T_AH_MIN_NS    : time := 15 ns;   -- tAH >= 15 ns [DIVERIFIKASI: baris 5682]
-    constant T_DSW_MIN_NS   : time := 15 ns;   -- tDSW >= 15 ns (DIASUMSIKAN)
-    constant T_DHW_MIN_NS   : time := 15 ns;   -- tDHW >= 15 ns (DIASUMSIKAN)
+    -- Konstanta Batas Timing Datasheet SSD1306 Rev 1.1
+    -- Catatan: tR dan tF (maks 40 ns) tidak diperiksa di testbench karena transisi sinyal RTL bersifat ideal (0 ns);
+    -- verifikasi batas slew rate dilakukan melalui simulasi timing pasca-implementasi atau osiloskop di board fisik.
+    constant T_RES_MIN_NS   : time := 3000 ns; -- tRES >= 3 us [DIVERIFIKASI OLEH PENGGUNA: Tabel 13-1, halaman 49, Rev 1.1]
+    constant T_CYCLE_MIN_NS : time := 100 ns;  -- tcycle >= 100 ns [DIVERIFIKASI OLEH PENGGUNA: Tabel 13-4, halaman 52, Rev 1.1]
+    constant T_CLKL_MIN_NS  : time := 20 ns;   -- tCLKL >= 20 ns [DIVERIFIKASI OLEH PENGGUNA: Tabel 13-4, halaman 52, Rev 1.1]
+    constant T_CLKH_MIN_NS  : time := 20 ns;   -- tCLKH >= 20 ns [DIVERIFIKASI OLEH PENGGUNA: Tabel 13-4, halaman 52, Rev 1.1]
+    constant T_CSS_MIN_NS   : time := 20 ns;   -- tCSS >= 20 ns [DIVERIFIKASI OLEH PENGGUNA: Tabel 13-4, halaman 52, Rev 1.1]
+    constant T_CSH_MIN_NS   : time := 10 ns;   -- tCSH >= 10 ns [DIVERIFIKASI OLEH PENGGUNA: Tabel 13-4, halaman 52, Rev 1.1]
+    constant T_AS_MIN_NS    : time := 15 ns;   -- tAS >= 15 ns [DIVERIFIKASI OLEH PENGGUNA: Tabel 13-4, halaman 52, Rev 1.1]
+    constant T_AH_MIN_NS    : time := 15 ns;   -- tAH >= 15 ns [DIVERIFIKASI OLEH PENGGUNA: Tabel 13-4, halaman 52, Rev 1.1]
+    constant T_DSW_MIN_NS   : time := 15 ns;   -- tDSW >= 15 ns [DIVERIFIKASI OLEH PENGGUNA: Tabel 13-4, halaman 52, Rev 1.1]
+    constant T_DHW_MIN_NS   : time := 15 ns;   -- tDHW >= 15 ns [DIVERIFIKASI OLEH PENGGUNA: Tabel 13-4, halaman 52, Rev 1.1]
 
     -- Sinyal Stimulus
     signal clk   : std_logic := '0';
@@ -106,6 +108,21 @@ architecture sim of tb_oled_spi is
     signal sim_gddram2     : ref_bitmap_t := (others => (others => '0'));
     signal rec_data_bytes2 : integer := 0;
 
+    -- Sinyal Antarmuka UUT3 (Varian READ_LATENCY = 2 dengan Model Memori Terpipa)
+    signal start3          : std_logic := '0';
+    signal busy3           : std_logic;
+    signal rd_addr3        : std_logic_vector(9 downto 0);
+    signal rd_data3_pipe   : std_logic_vector(7 downto 0) := (others => '0');
+    signal rd_data3        : std_logic_vector(7 downto 0) := (others => '0');
+    signal oled3_res       : std_logic;
+    signal oled3_dc        : std_logic;
+    signal oled3_cs        : std_logic;
+    signal oled3_sclk      : std_logic;
+    signal oled3_mosi      : std_logic;
+    signal init_done3      : std_logic;
+    signal sim_gddram3     : ref_bitmap_t := (others => (others => '0'));
+    signal rec_data_bytes3 : integer := 0;
+
 begin
 
     -- Pembangkit Clock 100 MHz
@@ -120,12 +137,16 @@ begin
         wait;
     end process;
 
-    -- Model Memori BRAM Frame Buffer Sinkron (Latensi 1 Siklus Clock)
+    -- Model Memori BRAM Frame Buffer Sinkron (meniru frame_buffer.vhd persis)
+    -- UUT & UUT2: latensi 1 siklus clock (default)
+    -- UUT3: model memori terpipa 2 siklus clock (READ_LATENCY = 2)
     bram_proc : process(clk)
     begin
         if rising_edge(clk) then
-            rd_data  <= tb_bram(to_integer(unsigned(rd_addr)));
-            rd_data2 <= tb_bram(to_integer(unsigned(rd_addr2)));
+            rd_data       <= tb_bram(to_integer(unsigned(rd_addr)));
+            rd_data2      <= tb_bram(to_integer(unsigned(rd_addr2)));
+            rd_data3_pipe <= tb_bram(to_integer(unsigned(rd_addr3)));
+            rd_data3      <= rd_data3_pipe; -- Tepat 2 siklus latensi clock
         end if;
     end process;
 
@@ -187,6 +208,35 @@ begin
             init_done => init_done2
         );
 
+    -- Instansiasi UUT3 (CLK_DIV = 16, INVERT_DATA = false, READ_LATENCY = 2)
+    uut3 : entity work.oled_spi
+        generic map (
+            CLK_DIV         => 16,
+            REMAP_SEG       => x"A1",
+            REMAP_COM       => x"C8",
+            CONTRAST        => x"CF",
+            INVERT_DATA     => false,
+            READ_LATENCY    => 2,
+            RES_LOW_CYCLES  => 350,
+            RES_WAIT_CYCLES => 200,
+            CS_SETUP_CYCLES => 3,
+            CS_HOLD_CYCLES  => 2
+        )
+        port map (
+            clk       => clk,
+            rst       => rst,
+            start     => start3,
+            busy      => busy3,
+            rd_addr   => rd_addr3,
+            rd_data   => rd_data3,
+            oled_res  => oled3_res,
+            oled_dc   => oled3_dc,
+            oled_cs   => oled3_cs,
+            oled_sclk => oled3_sclk,
+            oled_mosi => oled3_mosi,
+            init_done => init_done3
+        );
+
     -- -------------------------------------------------------------------------
     -- MONITOR TIMING & PEREKAM PROTOKOL SPI SSD1306
     -- Mencuplik MOSI pada tepi naik SCLK saat CS='0' dan D/C pada bit ke-8
@@ -202,6 +252,11 @@ begin
         variable t_dc_change  : time := 0 ns;
         variable t_mosi_change: time := 0 ns;
         variable t_prev_sclk_rise : time := 0 ns;
+        variable t_last_sclk_rise : time := 0 ns;
+        variable v_await_mosi_hold: boolean := false;
+        variable t_8th_sclk_rise  : time := 0 ns;
+        variable v_await_dc_hold  : boolean := false;
+        variable v_byte_in_prog   : boolean := false;
 
         -- Variabel deserializer byte
         variable v_shift_reg  : std_logic_vector(7 downto 0) := (others => '0');
@@ -234,6 +289,10 @@ begin
             if falling_edge(oled_res) then
                 t_res_fall := now;
                 rec_init_bytes <= 0;
+                v_bit_cnt         := 0;
+                v_byte_in_prog    := false;
+                v_await_dc_hold   := false;
+                v_await_mosi_hold := false;
             elsif rising_edge(oled_res) then
                 t_res_rise := now;
                 if check_timing_en then
@@ -262,10 +321,36 @@ begin
             -- 3. Pemantauan Perubahan Data & D/C untuk Setup/Hold
             if oled_dc'event then
                 t_dc_change := now;
+                if check_timing_en and oled_res = '1' then
+                    -- Asersi D/C tidak boleh berubah di tengah transmisi byte aktif (kecuali saat reset)
+                    if v_byte_in_prog then
+                        assert false
+                            report "PELANGGARAN TIMING: D/C berubah di tengah transmisi byte!"
+                            severity failure;
+                    end if;
+                    -- Asersi tAH: D/C stabil minimal tAH sesudah tepi naik ke-8
+                    if v_await_dc_hold then
+                        assert (now - t_8th_sclk_rise) >= T_AH_MIN_NS
+                            report "PELANGGARAN TIMING: D/C Hold time tAH (" &
+                                   time'image(now - t_8th_sclk_rise) & ") kurang dari 15 ns!"
+                            severity failure;
+                        v_await_dc_hold := false;
+                    end if;
+                end if;
             end if;
 
             if oled_mosi'event then
                 t_mosi_change := now;
+                if check_timing_en then
+                    -- Asersi tDHW: MOSI stabil minimal tDHW sesudah tiap tepi naik SCLK
+                    if v_await_mosi_hold then
+                        assert (now - t_last_sclk_rise) >= T_DHW_MIN_NS
+                            report "PELANGGARAN TIMING: Data Hold time tDHW (" &
+                                   time'image(now - t_last_sclk_rise) & ") kurang dari 15 ns!"
+                            severity failure;
+                        v_await_mosi_hold := false;
+                    end if;
+                end if;
             end if;
 
             -- 4. Tepi Turun SCLK
@@ -310,26 +395,40 @@ begin
                             severity failure;
                     end if;
 
-                    -- D/C Setup time sebelum tepi naik
-                    assert (t_sclk_rise - t_dc_change) >= T_AS_MIN_NS
-                        report "PELANGGARAN TIMING: D/C Setup time tAS (" &
-                               time'image(t_sclk_rise - t_dc_change) & ") kurang dari 15 ns!"
-                        severity failure;
+                    -- D/C Setup time sebelum tepi naik SCLK pertama sebuah byte
+                    if v_bit_cnt = 0 then
+                        assert (t_sclk_rise - t_dc_change) >= T_AS_MIN_NS
+                            report "PELANGGARAN TIMING: D/C Setup time tAS (" &
+                                   time'image(t_sclk_rise - t_dc_change) & ") kurang dari 15 ns!"
+                            severity failure;
+                    end if;
 
                     -- Data Setup time MOSI sebelum tepi naik
                     assert (t_sclk_rise - t_mosi_change) >= T_DSW_MIN_NS
                         report "PELANGGARAN TIMING: Data Setup time tDSW (" &
                                time'image(t_sclk_rise - t_mosi_change) & ") kurang dari 15 ns!"
-                        severity failure;
+                            severity failure;
                 end if;
 
                 -- Cuplik bit MOSI (MSB duluan)
                 if oled_cs = '0' then
+                    t_last_sclk_rise  := now;
+                    v_await_mosi_hold := true;
+
+                    if v_bit_cnt = 0 then
+                        v_byte_in_prog  := true;
+                        v_await_dc_hold := false;
+                    end if;
+
                     v_shift_reg := v_shift_reg(6 downto 0) & oled_mosi;
                     v_bit_cnt   := v_bit_cnt + 1;
 
                     -- Pada bit ke-8, cuplik nilai D/C
                     if v_bit_cnt = 8 then
+                        t_8th_sclk_rise := now;
+                        v_await_dc_hold := true;
+                        v_byte_in_prog  := false;
+
                         v_sampled_dc := oled_dc;
                         v_byte_val   := v_shift_reg;
                         v_bit_cnt    := 0;
@@ -461,6 +560,52 @@ begin
                                     v_cur_page2 := v_cur_page2 + 1;
                                 else
                                     v_cur_page2 := 0;
+                                end if;
+                            end if;
+                        end if;
+                    end if;
+                end if;
+            end if;
+        end loop;
+        wait;
+    end process;
+
+    -- Perekam Frame UUT3 (READ_LATENCY = 2)
+    spi_monitor3_proc : process
+        variable v_shift_reg3  : std_logic_vector(7 downto 0) := (others => '0');
+        variable v_bit_cnt3    : integer := 0;
+        variable v_byte_val3   : std_logic_vector(7 downto 0);
+        variable v_sampled_dc3 : std_logic := '0';
+        variable v_cur_col3    : integer := 0;
+        variable v_cur_page3   : integer := 0;
+    begin
+        while not sim_done loop
+            wait on oled3_cs, oled3_sclk;
+
+            if rising_edge(oled3_sclk) then
+                if oled3_cs = '0' then
+                    v_shift_reg3 := v_shift_reg3(6 downto 0) & oled3_mosi;
+                    v_bit_cnt3   := v_bit_cnt3 + 1;
+
+                    if v_bit_cnt3 = 8 then
+                        v_sampled_dc3 := oled3_dc;
+                        v_byte_val3   := v_shift_reg3;
+                        v_bit_cnt3    := 0;
+
+                        if v_sampled_dc3 = '1' then
+                            rec_data_bytes3 <= rec_data_bytes3 + 1;
+                            for r in 0 to 7 loop
+                                sim_gddram3(v_cur_page3 * 8 + r, v_cur_col3) <= v_byte_val3(r);
+                            end loop;
+
+                            if v_cur_col3 < 127 then
+                                v_cur_col3 := v_cur_col3 + 1;
+                            else
+                                v_cur_col3 := 0;
+                                if v_cur_page3 < 7 then
+                                    v_cur_page3 := v_cur_page3 + 1;
+                                else
+                                    v_cur_page3 := 0;
                                 end if;
                             end if;
                         end if;
@@ -709,7 +854,9 @@ begin
         -- TEST 7: Varian Konfigurasi CLK_DIV = 32 dan INVERT_DATA = true
         -- ---------------------------------------------------------------------
         report "Menjalankan Test 7: Uji varian CLK_DIV = 32 dan INVERT_DATA = true...";
-        wait until init_done2 = '1';
+        if init_done2 = '0' then
+            wait until init_done2 = '1';
+        end if;
         while busy2 = '1' loop
             wait until rising_edge(clk);
         end loop;
@@ -738,6 +885,42 @@ begin
             end loop;
         end loop;
         report "Test 7 LULUS: CLK_DIV = 32 (SCLK 3,125 MHz) dan INVERT_DATA = true terverifikasi 100%.";
+
+        -- ---------------------------------------------------------------------
+        -- TEST 8: Varian Konfigurasi READ_LATENCY = 2 (Model Memori BRAM Terpipa 2 Siklus)
+        -- ---------------------------------------------------------------------
+        report "Menjalankan Test 8: Uji varian READ_LATENCY = 2 pada model BRAM terpipa 2 siklus...";
+        if init_done3 = '0' then
+            wait until init_done3 = '1';
+        end if;
+        while busy3 = '1' loop
+            wait until rising_edge(clk);
+        end loop;
+
+        -- Pola papan catur dari Test 4 masih tersimpan pada tb_bram
+        v_start_bytes := rec_data_bytes3;
+        start3 <= '1';
+        wait until rising_edge(clk);
+        start3 <= '0';
+        wait until rising_edge(clk);
+
+        while busy3 = '1' loop
+            wait until rising_edge(clk);
+        end loop;
+
+        assert (rec_data_bytes3 - v_start_bytes) = 1024
+            report "GAGAL [Test 8]: Jumlah data byte uut3 bukan 1.024!"
+            severity failure;
+
+        -- Verifikasi bahwa sim_gddram3 cocok persis byte-demi-byte dengan ref_grid
+        for y in 0 to 63 loop
+            for x in 0 to 127 loop
+                assert sim_gddram3(y, x) = ref_grid(y, x)
+                    report "GAGAL [Test 8]: Data GDDRAM uut3 pada (" & integer'image(x) & "," & integer'image(y) & ") mismatch!"
+                    severity failure;
+            end loop;
+        end loop;
+        report "Test 8 LULUS: READ_LATENCY = 2 terverifikasi 100% byte-exact pada model memori 2 siklus.";
 
         -- ---------------------------------------------------------------------
         -- RINGKASAN AKHIR

@@ -50,7 +50,20 @@ Berikut adalah perbandingan parameter timing AC terhadap perancangan FSM master 
 | `tDHW` | Write Data Hold Time (`SDIN`) | Min $15\text{ ns}$ | Baris 5700–5705 (Hal. 52, Table 13-4) | Data `MOSI` dipertahankan stabil selama fase HIGH = 8 siklus clock = $80\text{ ns}$. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | $+433\%$ ($+65\text{ ns}$) |
 | `tR` | SCLK / SDIN Rise Time | Max $40\text{ ns}$ | Baris 5718–5723 (Hal. 52, Table 13-4) | Waktu transisi naik keluaran I/O Artix-7 (standar LVCMOS33 12mA Fast) $\le 3\text{ ns}$. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | Terpenuhi ($\ll 40\text{ ns}$) |
 | `tF` | SCLK / SDIN Fall Time | Max $40\text{ ns}$ | Baris 5724–5729 (Hal. 52, Table 13-4) | Waktu transisi turun keluaran I/O Artix-7 (standar LVCMOS33 12mA Fast) $\le 3\text{ ns}$. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | Terpenuhi ($\ll 40\text{ ns}$) |
-| `RES#` | Reset Low Pulse Width | Min $3\ \mu\text{s}$ | Hal. 49, Table 13-1 | Pulsa reset hardware LOW dibangkitkan selama 1.000 siklus clock 100 MHz = $10\ \mu\text{s}$. | **TIDAK TERVERIFIKASI (bacaan pengguna menyusul)** | $+233\%$ ($+7\ \mu\text{s}$) |
+| `RES#` | Reset Low Pulse Width | Min $3\ \mu\text{s}$ | Hal. 49, Table 13-1 (penanda "=== PAGE 49 ===", "P 49/59") | Pulsa reset hardware LOW dibangkitkan selama 1.000 siklus clock 100 MHz = $10\ \mu\text{s}$. | **DIVERIFIKASI OLEH PENGGUNA (Tabel 13-1, halaman 49, Rev 1.1, VDD 1,65-3,3 V)** | $+233\%$ ($+7\ \mu\text{s}$) |
+
+> [!NOTE]
+> **Catatan Status Reset & Refresh Internal SSD1306 (Tabel 13-1, Hal. 49, Rev 1.1):**
+> 1. **Durasi Pulsa Reset:** Batas $t_{\text{RES}} \ge 3\ \mu\text{s}$ pada $V_{\text{DD}} = 1,65\text{ s.d. } 3,3\text{ V}$ telah **DIVERIFIKASI OLEH PENGGUNA** dari Tabel 13-1 halaman 49. Namun, waktu tunggu pemulihan sesudah `RES#` naik kembali ke HIGH **tetap TIDAK TERVERIFIKASI** (Rev 1.1 halaman 49 tidak memuat nilai tersebut; jeda $1\text{ ms}$ pada FSM `oled_spi` adalah usulan desain).
+> 2. **Frekuensi Osilator Internal & Laju Frame Layar (Tabel 13-1):**
+>    Tabel 13-1 mencantumkan frekuensi osilator internal $F_{\text{OSC}}$: min $333\text{ kHz}$, tipikal $370\text{ kHz}$, maks $407\text{ kHz}$ (pada $V_{\text{DD}} = 2,8\text{ V}$).
+>    Laju frame pemindaian panel internal OLED dihitung dengan formula:
+>    $$F_{\text{FRM}} = F_{\text{OSC}} \times \frac{1}{D \times K \times 64}$$
+>    Dengan rasio pembagi $D = 1$ dan $K = 54$ display clock per baris (kondisi reset bawaan perintah `0xD5, 0x80`):
+>    $$F_{\text{FRM, typ}} = \frac{370.000\text{ Hz}}{1 \times 54 \times 64} = \frac{370.000}{3.456} \approx 107,06\text{ Hz}\ (\text{periode refresh internal } \approx 9,34\text{ ms})$$
+>    [Perhitungan; DIASUMSIKAN].
+> 3. **Risiko Efek Robek Citra (Tearing Risk pada GDDRAM):**
+>    Penulisan burst SPI dari FPGA membutuhkan durasi $\approx 1,38\text{ ms}$ per frame (pada interval 30 FPS = $33,33\text{ ms}$). Karena penulisan SPI dilakukan secara asinkron tanpa pin sinkronisasi pemindaian (`FR` atau `TE` tidak tersedia pada header SPI 7-pin modul SSD1306 standar), penulisan data grafis ke GDDRAM berpotensi beririsan dengan pemindaian refresh internal panel (~9,3 ms), memunculkan potensi *frame tearing* [DIASUMSIKAN; pembuktian dilakukan saat uji board fisik].
 
 ### 1.3 Analisis Anggaran Waktu Transfer per Frame (Frame Budget)
 - **Ukuran Data Grafis Layar 128×64:**
