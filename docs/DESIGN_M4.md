@@ -565,6 +565,81 @@ Berdasarkan hasil pengujian empiris timing protokol pada `tb_audio_fifo` (Test 1
 3. **Penyelesaian Transaksi:**
    Ketika paket yang ditolak selesai, parser mengasertifkan `wr_commit` atau `wr_rollback`, yang secara otomatis mereset `reject_latch <= '0'` dan mengembalikan `w_spec <= w_commit`, menjaga integritas memori BRAM tanpa data korup.
 
+### 3.6 Implementasi Ekstensi Audio pada `packet_parser.vhd` (Milestone M4)
+- **Status Implementasi:** **SELESAI DI SIMULASI** (`sim/tb_parser_audio.vhd`, 7 skenario pengujian lolos 100% byte-exact, 6 uji mutasi tertangkap).
+- **Status Integrasi:** Modul daun mandiri; **BELUM TERINTEGRASI KE `top.vhd`** dan **BELUM DIUJI DI BOARD FISIK BASYS 3**. Seluruh keputusan terbuka (D-16, D-18) **TETAP TERBUKA**.
+- **Kompatibilitas Mundur:** Seluruh port baru memiliki nilai default aman (`'0'` atau `(others => '0')`), sehingga instansiasi lama pada `hdl/top.vhd` dan testbench lama tidak terpengaruh sama sekali.
+
+#### A. Antarmuka Port Baru Ekstensi Audio
+| Port | Arah | Tipe | Nilai Default | Deskripsi & Protokol |
+|---|---|---|---|---|
+| `aud_start` | out | `std_logic` | `'0'` | Pulsa aktif HIGH tepat 1 siklus clock saat state `CHECK_LEN` mengidentifikasi paket audio (`FRAME_ID(15) = '1'`). Mendahului byte data payload pertama minimal 1 siklus clock. |
+| `aud_len` | out | `unsigned(10 downto 0)` | `(others => '0')` | Panjang payload audio dalam byte (rentang 64 s.d. 1024 B). Valid bersamaan dengan pulsa `aud_start`. |
+| `aud_valid` | out | `std_logic` | `'0'` | Stroba valid 1 siklus clock per byte payload spekulatif saat state `DISPATCH_AUDIO`. Tidak pernah aktif bila `aud_reject` terlatch. |
+| `aud_data` | out | `std_logic_vector(7 downto 0)` | `(others => '0')` | Bus data sampel audio 8-bit PCM (spekulatif) yang dialirkan ke `audio_fifo.wr_data`. |
+| `aud_commit` | out | `std_logic` | `'0'` | Pulsa pengesahan 1 siklus clock setelah EOF (0xED) dan checksum XOR valid. Terbit minimal 1 siklus clock setelah `aud_valid` terakhir. |
+| `aud_rollback` | out | `std_logic` | `'0'` | Pulsa pembatalan 1 siklus clock jika EOF salah, checksum mismatch, atau timeout watchdog terjadi saat paket audio aktif. |
+| `cnt_audio_packets` | out | `unsigned(15 downto 0)` | `(others => '0')` | Pencacah saturasi 16-bit jumlah paket audio yang sukses diterima dan dikomit. Tidak bertambah untuk paket yang ditolak (`aud_reject`). |
+| `aud_reject` | in | `std_logic` | `'0'` | Sinyal masukan dari `audio_fifo.wr_reject`. Disampel pada siklus clock saat `aud_start = '1'`. Jika aktif, payload dikonsumsi spekulatif tetapi tidak diteruskan ke FIFO (`aud_valid = '0'`) dan `cnt_audio_packets` tidak bertambah [DIASUMSIKAN]. |
+
+#### B. Diagram Waktu Teks (ASCII Timing Diagrams)
+
+##### 1. Penerimaan Paket Audio Normal & Valid (Commit)
+```text
+Siklus Clock:     | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10| 11| 12| 13| 14| 15|
+------------------+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+State FSM:        |LEN|CHK|FTC|DISPATCH_AUDIO |FTC|EOF|FTC|CHK|IDL|...
+frame_id_reg:     |             0x8000 (bit 15 = '1')                         |
+aud_start:        |___/---\___________________________________________________|
+aud_len:          |===<      267 B (11-bit)       >===========================|
+aud_valid:        |___________/---\___/---\.../---\___________________________|
+aud_data:         |===========<D0 >===<D1 >...<Dn >===========================|
+aud_commit:       |___________________________________________/---\___________|
+aud_rollback:     |___________________________________________________________|
+cnt_audio_packets:| N                                         | N + 1         |
+```
+*Aturan Invarian:*
+- `aud_start` mendahului `aud_valid` pertama minimal 1 siklus clock.
+- `aud_commit` terbit minimal 1 siklus clock setelah `aud_valid` terakhir (pada state `READ_CHECKSUM` setelah verifikasi lolos).
+- `aud_valid` tidak pernah bocor ke antarmuka video (`m_axis_valid = '0'`, `packet_valid = '0'`).
+
+##### 2. Penolakan Paket Audio Akibat Buffer Penuh (`aud_reject = '1'`)
+```text
+Siklus Clock:     | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10| 11| 12| 13| 14| 15|
+------------------+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+State FSM:        |LEN|CHK|FTC|DISPATCH_AUDIO |FTC|EOF|FTC|CHK|IDL|...
+aud_start:        |___/---\___________________________________________________|
+aud_reject (in):  |___/---\___________________________________________________|
+aud_rejected_reg: |_______/-----------------------------------\_______________|
+aud_valid:        |___________________________________________________________| (Ditekan: '0')
+aud_data:         |___________________________________________________________|
+aud_commit:       |___________________________________________________________| (Ditekan: '0')
+aud_rollback:     |___________________________________________________________|
+rx_fifo commit:   |___________________________________________/---\___________| (Konsumsi bus)
+cnt_audio_packets:| N                                                         | N (Tetap)
+```
+*Perilaku:*
+- Ketika `aud_reject = '1'` saat `aud_start = '1'`, register `aud_rejected_reg` aktif mengunci status penolakan.
+- Payload tetap dibaca dari `rx_fifo` agar sinkronisasi bus serial tidak macet, namun `aud_valid` ditekan tetap '0'.
+- Setelah verifikasi EOF dan checksum valid, `rx_fifo` dikomit agar paket terbuang bersih, tetapi `aud_commit` tidak dipancarkan ke `audio_fifo` dan `cnt_audio_packets` tidak bertambah.
+
+##### 3. Pembatalan Paket Audio (Galat Checksum / Timeout Watchdog)
+```text
+Siklus Clock:     | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10| 11| 12| 13| 14| 15|
+------------------+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+State FSM:        |LEN|CHK|FTC|DISPATCH_AUDIO |FTC|EOF|FTC|CHK|IDL|...
+aud_start:        |___/---\___________________________________________________|
+aud_valid:        |___________/---\___/---\.../---\___________________________|
+aud_commit:       |___________________________________________________________|
+aud_rollback:     |___________________________________________/---\___________|
+fifo_rollback:    |___________________________________________/---\___________|
+cnt_chk_errors:   | M                                         | M + 1         |
+cnt_audio_packets:| N                                                         | N (Tetap)
+```
+*Perilaku:*
+- Jika checksum tidak cocok, atau watchdog timer (50 ms pada 100 MHz, generic `TIMEOUT_CYCLES`) habis saat transmisi terpotong, pulsa `aud_rollback <= '1'` dipancarkan serentak dengan `fifo_rollback <= '1'`.
+- `audio_fifo` memulihkan penunjuk tulis spekulatif (`w_spec <= w_commit`), membuang seluruh sampel korup/parsial.
+
 ## 4. Alokasi Pin PMOD (Rencana Pinout `basys3.xdc`)
 
 ### 4.1 Header PMOD yang Tersedia pada Digilent Basys 3

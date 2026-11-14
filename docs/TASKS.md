@@ -89,6 +89,7 @@ Legenda status: `[ ]` belum, `[~]` berjalan, `[x]` selesai dan terverifikasi.
 | T3.4 | **GATE:** review manusia atas rangkaian sebelum dihubungkan | Persetujuan tercatat | [ ] |
 | T3.5 | `audio_pwm` (PWM 8-bit 8 kHz Varian B) dan testbench `tb_audio_pwm` | Selesai pada simulasi (8 pengujian xsim 100% PASS, duty cycle & periode carrier konstan, latch selaras periode). Belum terintegrasi ke top/parser; belum diuji di board fisik. | [-] |
 | T3.5a | `audio_fifo` (FIFO BRAM 2048 B spekulatif) dan testbench `tb_audio_fifo` | Selesai pada simulasi (8 pengujian xsim 100% PASS: wrap pointer 12-bit, rollback vs commit 266 B, wr_reject, pre-roll 0x80 L>=1024, underflow counter, slip 2-arah terakselerasi, tulis-baca simultan 100 MHz, rantai audio_fifo -> audio_pwm). Belum terintegrasi ke pipeline top-level / packet_parser; belum diuji di board fisik. | [-] |
+| T3.5b | `packet_parser` ekstensi audio & testbench `tb_parser_audio` | Selesai pada simulasi (7 skenario mixed stream lolos 100% byte-exact: clean, corrupt checksum, corrupt EOF, payload false SOF, aud_reject, truncated watchdog, len=63; 6 uji mutasi tertangkap). Belum terintegrasi ke top-level (`top.vhd`); belum diuji di board fisik. | [-] |
 | T3.6 | Uji A2 di hardware dengan earphone | Terdengar benar; tidak ada pemanasan atau distorsi parah | [ ] |
 
 ---
@@ -99,7 +100,7 @@ Legenda status: `[ ]` belum, `[~]` berjalan, `[x]` selesai dan terverifikasi.
 |---|---|---|---|
 | T4.1 | **GATE:** tutup D-7 (SPI atau I2C) sesuai modul yang dibeli | Dicatat | [ ] |
 | T4.2 | Model perilaku SSD1306 di simulasi (rekonstruksi gambar dari byte) | Model menghasilkan gambar yang benar dari urutan inisialisasi dan data uji | [ ] |
-| T4.3 | Master SPI/I2C dan testbench | Waktu dan protokol sesuai | [ ] |
+| T4.3 | Master SPI/I2C dan testbench | Waktu dan protokol sesuai (`oled_spi.vhd` dan `tb_oled_spi.vhd` selesai simulasi, READ_LATENCY=1 dan generic 2 terverifikasi). Belum terintegrasi ke top; belum diuji di board. | [-] |
 | T4.4 | `oled_sink`: urutan inisialisasi dan konversi ke page-addressing | Gambar rekonstruksi di model sama dengan golden | [ ] |
 | T4.5 | Uji gambar statis lalu video di layar fisik | Tampil benar | [ ] |
 

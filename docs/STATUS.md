@@ -192,10 +192,27 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context` pada `xc
 
 ### B. Keputusan Terbuka (Open)
 - **D-10 (Kontainer Media):** Struktur paket streaming audio/video (diputuskan di M2: video frame RLE mandiri, audio stream disisipkan atau interleave).
+- **D-14:** Format kontainer streaming gabungan (video FID 0x0000..0x7FFF, audio FID 0x8000..0xFFFF). Status: Diimplementasikan pada daun `packet_parser` dan diverifikasi pada `tb_parser_audio` (7 skenario). Tetap terbuka untuk integrasi penuh top-level dan board.
+- **D-15:** Laju sampling dan ukuran paket audio (8 kHz mono, 267/267/266 B per frame video 30 FPS). Selesai di simulasi; tetap terbuka untuk integrasi top-level.
+- **D-16:** Rangkaian analog eksternal audio PWM A2 (low-pass filter RC + kapasitor DC-blocking). Status: Menunggu peninjauan manusia dan pemilihan nilai komponen fisik.
+- **D-17:** Kedalaman buffer audio dan kebijakan slip 2-arah. Diimplementasikan pada daun `audio_fifo` (2048 B, ambang 410/512 dan 1638/1536). Tetap terbuka untuk integrasi top-level.
+- **D-18:** Kebijakan jeda transmisi / burst UART RX PC-to-FPGA. Tetap terbuka sampai ada pengujian board fisik.
 
 ---
 
-## 4. Pekerjaan Tertunda Menunggu Board Fisik Basys 3
+## 4. Status Modul Daun Milestone 4 (Simulasi Selesai, Menunggu Integrasi Top & Board)
+1. **`hdl/packet_parser.vhd` (Ekstensi Audio):**
+   - Status: **SELESAI DI SIMULASI** (`sim/tb_parser_audio.vhd`, 7 skenario uji mixed stream lolos 100%, 6 mutasi tertangkap).
+   - Port baru berpelindung kompatibilitas mundur (nilai default aman untuk instansiasi lama).
+   - Belum terintegrasi ke `top.vhd`, belum diuji di board fisik Basys 3.
+2. **`hdl/audio_fifo.vhd` & `hdl/audio_pwm.vhd`:**
+   - Status: **SELESAI DI SIMULASI** (`tb_audio_fifo`, `tb_audio_pwm`). Belum terintegrasi ke `top.vhd`, belum diuji di board fisik Basys 3.
+3. **`hdl/oled_spi.vhd`:**
+   - Status: **SELESAI DI SIMULASI** (`tb_oled_spi`). Belum terintegrasi ke `top.vhd`, belum ada konstrain XDC aktif, belum diuji di board fisik Basys 3.
+
+---
+
+## 5. Pekerjaan Tertunda Menunggu Board Fisik Basys 3
 1. **Pemrograman Bitstream:** Validasi pemrograman flash / SRAM via Vivado Hardware Manager (`top_compressed.bit`).
 2. **Koneksi UART Fisik:** Verifikasi komunikasi baud rate 921.600 baud melalui jembatan USB-UART FTDI FT2232HQ pada Basys 3.
 3. **Capture & Display Real-Time:** Menjalankan `python/uart_capture.py` dan terminal VT100 lokal pada port COM fisik untuk memastikan 90 frame klip berputar tanpa glitch visual atau dropped byte.
