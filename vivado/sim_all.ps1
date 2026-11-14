@@ -147,6 +147,33 @@ $testSuites = @(
         Tb      = "sim/tb_parser_audio.vhd"
         Top     = "tb_parser_audio"
         PassKey = "TEST PASSED: tb_parser_audio"
+    },
+    @{
+        Name    = "tb_frame_buffer_dual"
+        Hdl     = @("hdl/frame_buffer.vhd")
+        Tb      = "sim/tb_frame_buffer_dual.vhd"
+        Top     = "tb_frame_buffer_dual"
+        PassKey = "TEST PASSED: tb_frame_buffer_dual"
+    },
+    @{
+        Name    = "tb_top_oled"
+        Hdl     = @(
+            "hdl/uart_rx.vhd",
+            "hdl/rx_fifo.vhd",
+            "hdl/packet_parser.vhd",
+            "hdl/rle_decoder.vhd",
+            "hdl/frame_timer.vhd",
+            "hdl/frame_source.vhd",
+            "hdl/decoder.vhd",
+            "hdl/frame_buffer.vhd",
+            "hdl/ascii_sink.vhd",
+            "hdl/uart_tx.vhd",
+            "hdl/oled_spi.vhd",
+            "hdl/top.vhd"
+        )
+        Tb      = "sim/tb_top_oled.vhd"
+        Top     = "tb_top_oled"
+        PassKey = "TEST PASSED: tb_top_oled"
     }
 )
 
