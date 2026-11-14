@@ -35,20 +35,22 @@ $$\text{DIVIDER} = 16 \implies f_{\text{SCLK}} = \frac{100\text{ MHz}}{16} = 6,2
 Periode clock `SCLK` adalah $T_{\text{SCLK}} = 160\text{ ns}$ (lebar pulsa HIGH 80 ns, LOW 80 ns).
 
 #### B. Evaluasi Karakteristik Timing AC (Datasheet SSD1306 Rev 1.1 vs FSM SPI Modul oled_spi)
-Berikut adalah perbandingan parameter timing AC terhadap perancangan FSM master SPI FPGA pada modul daun `oled_spi.vhd`. Sesuai keputusan tim pada Bagian 4p, parameter `tAH`, `tCSS`, dan `tCSH` telah **DIVERIFIKASI** dari bacaan pengguna pada `ssd1306_raw.txt` baris 5676–5693 (halaman 52 menurut penanda). Judul tabel dan parameter AC lainnya (`tcycle`, `tAS`, `tDSW`, `tDHW`, `tCLKL`, `tCLKH`) berstatus **DIASUMSIKAN** menggunakan konstanta konservatif yang aman:
+Berikut adalah perbandingan parameter timing AC terhadap perancangan FSM master SPI FPGA pada modul daun `oled_spi.vhd`. Sesuai keputusan tim pada Bagian 4q, seluruh nilai parameter timing SPI 4-kabel pada Tabel 13-4 telah **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52, baris 5655–5729)** pada rentang tegangan $V_{\text{DD}} - V_{\text{SS}} = 1,65\text{V} - 3,3\text{V}, T_{\text{A}} = 25^\circ\text{C}$. Pulsa reset fisik hardware (`RES#`) dan durasi tunggu setelah reset naik tetap berstatus **TIDAK TERVERIFIKASI** (bacaan pengguna menyusul):
 
-| Simbol Parameter | Nama Parameter Timing | Batas Datasheet (Rev 1.1) | Rujukan di `ssd1306_raw.txt` | Karakteristik FSM Master SPI FPGA (Clock 100 MHz, SCLK 6,25 MHz) | Status Verifikasi Datasheet (Bagian 4p) | Margin Keamanan |
+| Simbol Parameter | Nama Parameter Timing | Batas Datasheet (Rev 1.1) | Rujukan di `ssd1306_raw.txt` | Karakteristik FSM Master SPI FPGA (Klaim RTL, diukur `tb_oled_spi`) | Status Verifikasi Datasheet (Bagian 4q) | Margin Keamanan |
 |---|---|:---:|---|---|:---:|:---:|
-| `tcycle` | Clock Cycle Time | Min $100\text{ ns}$ | Baris 5677 (Hal. 52) | Periode $T_{\text{SCLK}} = 160\text{ ns}$ (16 siklus clock 100 MHz). | **DIASUMSIKAN (konstanta konservatif)** | $+60\%$ ($+60\text{ ns}$) |
-| `tCLKL` | Clock Low Time | Min $20\text{ ns}$ | Baris 5686 (Hal. 52) | Pulsa LOW `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **DIASUMSIKAN (konstanta konservatif)** | $+300\%$ ($+60\text{ ns}$) |
-| `tCLKH` | Clock High Time | Min $20\text{ ns}$ | Baris 5685 (Hal. 52) | Pulsa HIGH `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **DIASUMSIKAN (konstanta konservatif)** | $+300\%$ ($+60\text{ ns}$) |
-| `tCSS` | Chip Select Setup Time | Min $20\text{ ns}$ | Baris 5683 (Hal. 52) | Sinyal `CS#` di-assert LOW 3 siklus clock ($30\text{ ns}$) sebelum tepi pertama `SCLK`. | **DIVERIFIKASI (bacaan pengguna)** | $+50\%$ ($+10\text{ ns}$) |
-| `tCSH` | Chip Select Hold Time | Min $10\text{ ns}$ | Baris 5684 (Hal. 52) | Sinyal `CS#` ditahan LOW 2 siklus clock ($20\text{ ns}$) setelah tepi terakhir `SCLK` sebelum naik. | **DIVERIFIKASI (bacaan pengguna)** | $+100\%$ ($+10\text{ ns}$) |
-| `tAS` | Address Setup Time (`D/C#`) | Min $15\text{ ns}$ | Baris 5681 (Hal. 52) | Sinyal `D/C#` disetel bersamaan dengan `CS#` assert, mendahului tepi naik `SCLK` pertama $\ge 30\text{ ns}$. | **DIASUMSIKAN (konstanta konservatif)** | $+100\%$ ($+15\text{ ns}$) |
-| `tAH` | Address Hold Time (`D/C#`) | Min $15\text{ ns}$ | Baris 5682 (Hal. 52) | Sinyal `D/C#` dipertahankan stabil setelah tepi turun `SCLK` minimal 8 siklus clock = $80\text{ ns}$. | **DIVERIFIKASI (bacaan pengguna)** | $+433\%$ ($+65\text{ ns}$) |
-| `tDSW` | Write Data Setup Time (`SDIN`) | Min $15\text{ ns}$ | Baris 5687 (Hal. 52) | Data `MOSI` disiapkan pada tepi turun `SCLK`, memberikan setup time 8 siklus clock = $80\text{ ns}$. | **DIASUMSIKAN (konstanta konservatif)** | $+433\%$ ($+65\text{ ns}$) |
-| `tDHW` | Write Data Hold Time (`SDIN`) | Min $15\text{ ns}$ | Baris 5688 (Hal. 52) | Data `MOSI` dipertahankan stabil selama fase HIGH = 8 siklus clock = $80\text{ ns}$. | **DIASUMSIKAN (konstanta konservatif)** | $+433\%$ ($+65\text{ ns}$) |
-| `RES#` | Reset Low Pulse Width | Min $3\ \mu\text{s}$ | Hal. 49, Table 13-1 | Pulsa reset hardware LOW dibangkitkan selama 1.000 siklus clock 100 MHz = $10\ \mu\text{s}$. | **DIVERIFIKASI (Table 13-1)** | $+233\%$ ($+7\ \mu\text{s}$) |
+| `tcycle` | Clock Cycle Time | Min $100\text{ ns}$ | Baris 5665–5669 (Hal. 52, Table 13-4) | Periode $T_{\text{SCLK}} = 160\text{ ns}$ (16 siklus clock 100 MHz). | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | $+60\%$ ($+60\text{ ns}$) |
+| `tCLKL` | Clock Low Time | Min $20\text{ ns}$ | Baris 5706–5711 (Hal. 52, Table 13-4) | Pulsa LOW `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | $+300\%$ ($+60\text{ ns}$) |
+| `tCLKH` | Clock High Time | Min $20\text{ ns}$ | Baris 5712–5717 (Hal. 52, Table 13-4) | Pulsa HIGH `SCLK` adalah 8 siklus clock = $80\text{ ns}$. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | $+300\%$ ($+60\text{ ns}$) |
+| `tCSS` | Chip Select Setup Time | Min $20\text{ ns}$ | Baris 5682–5687 (Hal. 52, Table 13-4) | Sinyal `CS#` di-assert LOW 3 siklus clock ($30\text{ ns}$) sebelum tepi pertama `SCLK`. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | $+50\%$ ($+10\text{ ns}$) |
+| `tCSH` | Chip Select Hold Time | Min $10\text{ ns}$ | Baris 5688–5693 (Hal. 52, Table 13-4) | Sinyal `CS#` ditahan LOW 2 siklus clock ($20\text{ ns}$) setelah tepi terakhir `SCLK` sebelum naik. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | $+100\%$ ($+10\text{ ns}$) |
+| `tAS` | Address Setup Time (`D/C#`) | Min $15\text{ ns}$ | Baris 5670–5675 (Hal. 52, Table 13-4) | Sinyal `D/C#` disetel bersamaan dengan `CS#` assert, mendahului tepi naik `SCLK` pertama $\ge 30\text{ ns}$. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | $+100\%$ ($+15\text{ ns}$) |
+| `tAH` | Address Hold Time (`D/C#`) | Min $15\text{ ns}$ | Baris 5676–5681 (Hal. 52, Table 13-4) | Sinyal `D/C#` dipertahankan stabil setelah tepi turun `SCLK` minimal 8 siklus clock = $80\text{ ns}$. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | $+433\%$ ($+65\text{ ns}$) |
+| `tDSW` | Write Data Setup Time (`SDIN`) | Min $15\text{ ns}$ | Baris 5694–5699 (Hal. 52, Table 13-4) | Data `MOSI` disiapkan pada tepi turun `SCLK`, memberikan setup time 8 siklus clock = $80\text{ ns}$. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | $+433\%$ ($+65\text{ ns}$) |
+| `tDHW` | Write Data Hold Time (`SDIN`) | Min $15\text{ ns}$ | Baris 5700–5705 (Hal. 52, Table 13-4) | Data `MOSI` dipertahankan stabil selama fase HIGH = 8 siklus clock = $80\text{ ns}$. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | $+433\%$ ($+65\text{ ns}$) |
+| `tR` | SCLK / SDIN Rise Time | Max $40\text{ ns}$ | Baris 5718–5723 (Hal. 52, Table 13-4) | Waktu transisi naik keluaran I/O Artix-7 (standar LVCMOS33 12mA Fast) $\le 3\text{ ns}$. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | Terpenuhi ($\ll 40\text{ ns}$) |
+| `tF` | SCLK / SDIN Fall Time | Max $40\text{ ns}$ | Baris 5724–5729 (Hal. 52, Table 13-4) | Waktu transisi turun keluaran I/O Artix-7 (standar LVCMOS33 12mA Fast) $\le 3\text{ ns}$. | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** | Terpenuhi ($\ll 40\text{ ns}$) |
+| `RES#` | Reset Low Pulse Width | Min $3\ \mu\text{s}$ | Hal. 49, Table 13-1 | Pulsa reset hardware LOW dibangkitkan selama 1.000 siklus clock 100 MHz = $10\ \mu\text{s}$. | **TIDAK TERVERIFIKASI (bacaan pengguna menyusul)** | $+233\%$ ($+7\ \mu\text{s}$) |
 
 ### 1.3 Analisis Anggaran Waktu Transfer per Frame (Frame Budget)
 - **Ukuran Data Grafis Layar 128×64:**
@@ -80,7 +82,7 @@ Modul hardware `oled_spi.vhd` akan mengimplementasikan State Machine (FSM) inisi
 
 Tabel berikut mencantumkan setiap byte perintah konfigurasi inisialisasi FSM modul `oled_spi.vhd` yang diperbarui berdasarkan **BACAAN PENGGUNA dari `ssd1306_raw.txt`** (dengan nomor halaman diverifikasi dari penanda `=== PAGE n ===` terdekat sebelumnya). Status verifikasi dibedakan secara tegas:
 
-| No | Byte (Hex) | Arti / Fungsi Register | Rujukan Halaman & Baris di `ssd1306_raw.txt` | Status Verifikasi Datasheet (Bagian 4o) |
+| No | Byte (Hex) | Arti / Fungsi Register | Rujukan Halaman & Baris di `ssd1306_raw.txt` | Status Verifikasi Datasheet (Bagian 4q) |
 |---|---|---|---|---|
 | 1 | `0xAE` | Display OFF (Sleep Mode) | Hal. 28 (Table 9-1 baris 1176–1180) & Hal. 37 (§10.1.12 baris 2623) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
 | 2 | `0xD5`, `0x80` | Set Display Clock Divide Ratio & Oscillator Frequency | Hal. 40 (§10.1.16 baris 4603) & Hal. 32 (Table 9-1 baris 2039–2048) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (§10.1.16: pembagi reset 1, osilator default 1000b, jadi 0x80 = nilai bawaan) |
@@ -88,15 +90,15 @@ Tabel berikut mencantumkan setiap byte perintah konfigurasi inisialisasi FSM mod
 | 4 | `0xD3`, `0x00` | Set Display Offset (Offset 0) | Hal. 31 (Table 9-1 baris 1975–1977) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
 | 5 | `0x40` | Set Display Start Line (Line 0) | Hal. 31 (Table 9-1 baris 1861–1864) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
 | 6 | `0x8D`, `0x14` | Charge Pump Setting (Enable 7,5V) | Tidak ada di Rev 1.1 (pin VBAT, C1N, C1P, C2N, C2P terdaftar Hal. 15–16) | **TIDAK TERVERIFIKASI** (tidak ada di Rev 1.1; silikon memiliki pin VBAT, C1N, C1P, C2N, C2P; sumber lain: contoh kode penjual modul atau revisi datasheet baru) |
-| 7 | `0x20`, `0x00` | Set Memory Addressing Mode (Horizontal Addressing) | Hal. 35 (§10.1.4 baris 2483) & Hal. 36 (§10.1.5 baris 2504) | **TIDAK TERVERIFIKASI** (kode mode horizontal belum dibaca pengguna; reset = mode halaman 10b) |
+| 7 | `0x20`, `0x00` | Set Memory Addressing Mode (Horizontal Addressing) | Hal. 30 (Table 9-1 baris 1665–1670), Hal. 34 (§10.1.3 baris 2284), Hal. 35 (baris 2382–2388) | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt)** (A[1:0]=00b horizontal, 10b = RESET mode halaman; setelah kolom terakhir penunjuk kembali ke kolom awal dan halaman naik; setelah halaman terakhir keduanya kembali ke awal) |
 | 8 | `0xA1` | Set Segment Re-map (Kolom 127 ke SEG0) | Hal. 31 (Table 9-1 baris 1886–1889) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
-| 9 | `0xC8` | Set COM Output Scan Direction (COM[N-1] ke COM0) | Hal. 31 (Table 9-1 baris 1939) & Hal. 37 (§10.1.14 baris 2637) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
+| 9 | `0xC8` | Set COM Output Scan Direction (COM[N-1] ke COM0) | Hal. 31 (Table 9-1 baris 1939–1941) & Hal. 37 (§10.1.14 baris 2637) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
 | 10 | `0xDA`, `0x12` | Set COM Pins Hardware Configuration (Alternative PIN, Disable L/R Remap) | Hal. 31 (Table 9-1 baris 2008–2017) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (A[4]=1b RESET, A[5]=0b RESET, jadi 0x12 = nilai reset) |
 | 11 | `0x81`, `0xCF` | Set Contrast Control (Tingkat kontras `0xCF`) | Hal. 28 (Table 9-1 baris 1098–1101) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (reset 7Fh, rentang 00..FF) |
 | 12 | `0xD9`, `0xF1` | Set Pre-charge Period (Phase 1 = 1 DCLK, Phase 2 = 15 DCLK) | Hal. 32 (Table 9-1 baris 2113–2119) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (0 tidak valid; reset 2h) |
 | 13 | `0xDB`, `0x20` | Set VCOMH Deselect Level (~0,77 x VCC) | Hal. 32 (Table 9-1 baris 2140) & Hal. 43 (§10.1.19 baris 4828) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (00h ~0,65, 20h ~0,77 RESET, 30h ~0,83) |
 | 14 | `0xA4` | Entire Display ON (Resume to RAM Content) | Hal. 28 (Table 9-1 baris 1113) & Hal. 37 (§10.1.9 baris 2606) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (pada tampilan normal data RAM 1 = piksel menyala) |
-| 15 | `0xA6` | Set Normal Display | Hal. 28 (Table 9-1 baris 1140) & Hal. 37 (§10.1.10 baris 2612) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (pada tampilan normal data RAM 1 = piksel menyala) |
+| 15 | `0xA6` | Set Normal Display | Hal. 28 (Table 9-1 baris 1140) & Hal. 37 (§10.1.10 baris 2613) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** (pada tampilan normal data RAM 1 = piksel menyala) |
 | 16 | `0xAF` | Display ON (Normal Mode) | Hal. 28 (Table 9-1 baris 1176–1180) & Hal. 37 (§10.1.12 baris 2623) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
 | 17 | `0x21`, `0x00`, `0x7F` | Set Column Address (Rentang kolom $0..127$) | Hal. 30 (Table 9-1 baris 1712–1717) & Hal. 35 (§10.1.4 baris 2483) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
 | 18 | `0x22`, `0x00`, `0x07` | Set Page Address (Rentang halaman $0..7$) | Hal. 31 (Table 9-1 baris 1785–1790) & Hal. 36 (§10.1.5 baris 2504) | **DIVERIFIKASI OLEH PENGGUNA (ekstraksi ssd1306_raw.txt)** |
@@ -121,10 +123,11 @@ Tabel berikut mencantumkan setiap byte perintah konfigurasi inisialisasi FSM mod
    - Silikon chip SSD1306 memiliki pin fisik untuk rangkaian charge pump (pin `VBAT`, `C1N`, `C1P`, `C2N`, `C2P` secara eksplisit terdaftar pada deskripsi pin Rev 1.1 Halaman 15-16). Namun, perintah konfigurasinya (`0x8D 0x14`) dan urutan power-on pengaktifan pengali tegangan internal sama sekali tidak terdokumentasi di dalam lembar data dasar Rev 1.1 (April 2008).
    - Berdasarkan KEPUTUSAN TIM 1 ("belum ada revisi baru"), status perintah `8Dh` dan urutan inisialisasi charge pump ditandai secara resmi sebagai **TIDAK TERVERIFIKASI**. Perintah ini dipertahankan sebagai konvensi modul industri komersial 0,96" 7-pin yang ditenagai 3,3V tunggal, namun memerlukan pengujian empiris langsung pada hardware fisik atau rujukan lembar data pelengkap (*Application Note / SSD1306B*).
 
-4. **Catatan Perilaku Mode Pengalamatan Horisontal (§10.1.4, Halaman 35/36):**
-   - Berdasarkan lembar data §10.1.4 (Halaman 35 baris 2486–2489) dan §10.1.5 (Halaman 36 baris 2518–2520): pada mode horizontal (`0x20 0x00`), setelah membaca atau menulis data satu kolom RAM, penunjuk kolom (*column address pointer*) secara otomatis bertambah ke kolom berikutnya.
-   - Setiap kali penunjuk kolom selesai mengakses batas kolom akhir (kolom 127 / `0x7F`), penunjuk kolom secara otomatis kembali (*reset/wrap*) ke kolom awal (kolom 0 / `0x00`), dan penunjuk baris/halaman (*page address pointer*) otomatis naik (+1) ke halaman berikutnya.
-   - Sifat ini memungkinkan modul hardware `oled_spi` menyemburkan 1.024 byte data frame secara kontigu dan linier (Page 0 Kolom 0..127 $\to$ Page 1 Kolom 0..127 $\to \dots \to$ Page 7 Kolom 0..127) tanpa perlu mengirimkan ulang perintah alamat di sela-sela halaman.
+4. **Catatan Perilaku Mode Pengalamatan Horisontal (§10.1.3, Halaman 30, 34, 35):**
+   - Berdasarkan Tabel 9-1 baris 1665–1670 (Halaman 30), §10.1.3 baris 2284 (Halaman 34), dan teks mode horizontal baris 2382–2388 (Halaman 35): pada mode horizontal (`0x20 0x00`), setelah membaca atau menulis data satu kolom RAM, penunjuk alamat kolom (*column address pointer*) secara otomatis bertambah ke kolom berikutnya.
+   - Jika penunjuk kolom telah mencapai batas kolom akhir (kolom 127 / `0x7F`), penunjuk kolom secara otomatis kembali (*reset/wrap*) ke kolom awal (kolom 0 / `0x00`), dan penunjuk baris/halaman (*page address pointer*) otomatis bertambah (+1) ke halaman berikutnya.
+   - Ketika kedua penunjuk (kolom dan halaman) mencapai batas akhir (kolom 127, halaman 7), kedua penunjuk secara otomatis kembali (*wrap-around*) ke kolom awal (kolom 0) dan halaman awal (halaman 0) [DIVERIFIKASI OLEH PENGGUNA: teks baris 2386–2388].
+   - Karakteristik ini memungkinkan FSM `oled_spi` menyemburkan 1.024 byte data frame secara kontigu dan linier (Page 0 Kolom 0..127 $\to$ Page 1 Kolom 0..127 $\to \dots \to$ Page 7 Kolom 0..127) tanpa perlu mengirimkan ulang instruksi penataan alamat di sela-sela pergantian halaman.
 
 ### 1.5 Mekanisme Buffer Swap & Sinkronisasi Frame
 - Pembaruan tampilan OLED dilakukan tepat setelah frame baru selesai didekode ke BRAM frame buffer dan sinyal swap bank BRAM aktif [DIVERIFIKASI: konsep `swap_ready` pada `hdl/frame_buffer.vhd` baris 41].
@@ -232,18 +235,20 @@ oled_mosi (SDIN): ======X=======< Bit 7 >< Bit 6 >< Bit 5 > ... < Bit 0 >=======
 ```
 
 #### D. Hitungan Margin Timing terhadap Batas Datasheet SSD1306
-| Parameter | Nilai Batas Datasheet | Karakteristik Terukur FSM `oled_spi` | Margin Keamanan | Status Verifikasi |
+| Parameter | Nilai Batas Datasheet (Table 13-4) | Karakteristik Terukur FSM `oled_spi` (Klaim RTL, diukur `tb_oled_spi`) | Margin Keamanan | Status Verifikasi Datasheet (Bagian 4q) |
 |---|:---:|:---:|:---:|:---:|
-| $t_{\text{cycle}}$ | Min $100\text{ ns}$ | $160\text{ ns}$ | $+60\%$ ($+60\text{ ns}$) | **DIASUMSIKAN (konstanta konservatif)** |
-| $t_{\text{CLKL}}$ | Min $20\text{ ns}$ | $80\text{ ns}$ | $+300\%$ ($+60\text{ ns}$) | **DIASUMSIKAN (konstanta konservatif)** |
-| $t_{\text{CLKH}}$ | Min $20\text{ ns}$ | $80\text{ ns}$ | $+300\%$ ($+60\text{ ns}$) | **DIASUMSIKAN (konstanta konservatif)** |
-| $t_{\text{CSS}}$ | Min $20\text{ ns}$ | $30\text{ ns}$ | $+50\%$ ($+10\text{ ns}$) | **DIVERIFIKASI (bacaan pengguna baris 5683)** |
-| $t_{\text{CSH}}$ | Min $10\text{ ns}$ | $20\text{ ns}$ | $+100\%$ ($+10\text{ ns}$) | **DIVERIFIKASI (bacaan pengguna baris 5684)** |
-| $t_{\text{AS}}$ | Min $15\text{ ns}$ | $30\text{ ns}$ | $+100\%$ ($+15\text{ ns}$) | **DIASUMSIKAN (konstanta konservatif)** |
-| $t_{\text{AH}}$ | Min $15\text{ ns}$ | $\ge 80\text{ ns}$ | $+433\%$ ($+65\text{ ns}$) | **DIVERIFIKASI (bacaan pengguna baris 5682)** |
-| $t_{\text{DSW}}$ | Min $15\text{ ns}$ | $80\text{ ns}$ | $+433\%$ ($+65\text{ ns}$) | **DIASUMSIKAN (konstanta konservatif)** |
-| $t_{\text{DHW}}$ | Min $15\text{ ns}$ | $80\text{ ns}$ | $+433\%$ ($+65\text{ ns}$) | **DIASUMSIKAN (konstanta konservatif)** |
-| $t_{\text{RES}}$ | Min $3\ \mu\text{s}$ | $10\ \mu\text{s}$ | $+233\%$ ($+7\ \mu\text{s}$) | **DIVERIFIKASI (Hal. 49 Table 13-1)** |
+| $t_{\text{cycle}}$ | Min $100\text{ ns}$ | $160\text{ ns}$ | $+60\%$ ($+60\text{ ns}$) | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** |
+| $t_{\text{CLKL}}$ | Min $20\text{ ns}$ | $80\text{ ns}$ | $+300\%$ ($+60\text{ ns}$) | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** |
+| $t_{\text{CLKH}}$ | Min $20\text{ ns}$ | $80\text{ ns}$ | $+300\%$ ($+60\text{ ns}$) | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** |
+| $t_{\text{CSS}}$ | Min $20\text{ ns}$ | $30\text{ ns}$ | $+50\%$ ($+10\text{ ns}$) | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** |
+| $t_{\text{CSH}}$ | Min $10\text{ ns}$ | $20\text{ ns}$ | $+100\%$ ($+10\text{ ns}$) | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** |
+| $t_{\text{AS}}$ | Min $15\text{ ns}$ | $30\text{ ns}$ | $+100\%$ ($+15\text{ ns}$) | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** |
+| $t_{\text{AH}}$ | Min $15\text{ ns}$ | $\ge 80\text{ ns}$ | $+433\%$ ($+65\text{ ns}$) | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** |
+| $t_{\text{DSW}}$ | Min $15\text{ ns}$ | $80\text{ ns}$ | $+433\%$ ($+65\text{ ns}$) | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** |
+| $t_{\text{DHW}}$ | Min $15\text{ ns}$ | $80\text{ ns}$ | $+433\%$ ($+65\text{ ns}$) | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** |
+| $t_{\text{R}}$ | Max $40\text{ ns}$ | $\le 3\text{ ns}$ | Terpenuhi ($\ll 40\text{ ns}$) | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** |
+| $t_{\text{F}}$ | Max $40\text{ ns}$ | $\le 3\text{ ns}$ | Terpenuhi ($\ll 40\text{ ns}$) | **DIVERIFIKASI OLEH PENGGUNA (ssd1306_raw.txt, halaman 52)** |
+| $t_{\text{RES}}$ | Min $3\ \mu\text{s}$ | $10\ \mu\text{s}$ | $+233\%$ ($+7\ \mu\text{s}$) | **TIDAK TERVERIFIKASI (bacaan pengguna menyusul)** |
 
 > [!NOTE]
 > Modul `oled_spi.vhd` belum diintegrasikan ke `top.vhd` dan batasan pin `basys3.xdc` belum ditambahkan pada tahap ini. Keputusan D-16 (filter audio) dan D-18 (resinkronisasi underflow) tetap berstatus **TERBUKA** dan tidak ditutup.
