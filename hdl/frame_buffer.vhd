@@ -42,14 +42,19 @@ entity frame_buffer is
 
         -- Port Baca Bank Depan (oleh Display / ASCII Sink)
         rd_addr         : in  unsigned(9 downto 0);
-        rd_data         : out std_logic_vector(7 downto 0)
+        rd_data         : out std_logic_vector(7 downto 0);
+
+        -- Port Baca Kedua Bank Depan (oleh OLED SPI Controller)
+        rd2_addr        : in  unsigned(9 downto 0) := (others => '0');
+        rd2_data        : out std_logic_vector(7 downto 0)
     );
 end entity frame_buffer;
 
 architecture rtl of frame_buffer is
     -- 2 Bank x 1024 byte = 2048 byte total memori RAMB ganda
     type ram_t is array (0 to 2047) of std_logic_vector(7 downto 0);
-    signal mem : ram_t := (others => (others => '0'));
+    signal mem  : ram_t := (others => (others => '0'));
+    signal mem2 : ram_t := (others => (others => '0'));
 
     -- Penunjuk bank: '0' -> Bank 0 depan, Bank 1 belakang; '1' -> Bank 1 depan, Bank 0 belakang
     signal bank_front : std_logic := '0';
@@ -75,8 +80,9 @@ begin
                              (streaming_mode = '1' and pending_swap = '0') else '0';
 
     process(clk)
-        variable full_wr_addr : integer;
-        variable full_rd_addr : integer;
+        variable full_wr_addr  : integer;
+        variable full_rd_addr  : integer;
+        variable full_rd2_addr : integer;
     begin
         if rising_edge(clk) then
             if rst = '1' then
@@ -89,6 +95,7 @@ begin
                 overrun_reg        <= '0';
                 underrun_reg       <= '0';
                 rd_data            <= (others => '0');
+                rd2_data           <= (others => '0');
             else
                 stream_overrun_reg <= '0';  -- Default pulsa 1 siklus
                 swap_done_reg      <= '0';  -- Default pulsa 1 siklus
@@ -124,7 +131,8 @@ begin
                             full_wr_addr := to_integer(wr_ptr);        -- Bank 0 belakang
                         end if;
 
-                        mem(full_wr_addr) <= s_axis_data;
+                        mem(full_wr_addr)  <= s_axis_data;
+                        mem2(full_wr_addr) <= s_axis_data;
 
                         if (s_axis_last = '1' or wr_ptr = FRAME_BYTES - 1) then
                             back_ready <= '1';
@@ -177,7 +185,8 @@ begin
                             full_wr_addr := to_integer(wr_ptr);
                         end if;
 
-                        mem(full_wr_addr) <= s_axis_data;
+                        mem(full_wr_addr)  <= s_axis_data;
+                        mem2(full_wr_addr) <= s_axis_data;
 
                         if wr_ptr < FRAME_BYTES - 1 then
                             wr_ptr <= wr_ptr + 1;
@@ -187,12 +196,15 @@ begin
 
                 -- Pembacaan Synchronous dari Bank Depan (Berlaku untuk kedua mode)
                 if bank_front = '0' then
-                    full_rd_addr := to_integer(rd_addr);        -- Bank 0 depan
+                    full_rd_addr  := to_integer(rd_addr);         -- Bank 0 depan
+                    full_rd2_addr := to_integer(rd2_addr);        -- Bank 0 depan (OLED)
                 else
-                    full_rd_addr := 1024 + to_integer(rd_addr); -- Bank 1 depan
+                    full_rd_addr  := 1024 + to_integer(rd_addr);  -- Bank 1 depan
+                    full_rd2_addr := 1024 + to_integer(rd2_addr); -- Bank 1 depan (OLED)
                 end if;
 
-                rd_data <= mem(full_rd_addr);
+                rd_data  <= mem(full_rd_addr);
+                rd2_data <= mem2(full_rd2_addr);
             end if;
         end if;
     end process;

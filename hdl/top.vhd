@@ -28,9 +28,16 @@ entity top is
         clk  : in  std_logic;                                      -- Pin W5: Osilator 100 MHz
         btnC : in  std_logic;                                      -- Pin U18: Tombol Reset
         sw   : in  std_logic_vector(0 downto 0) := (others => '0');-- Pin V17: Saklar SW0 (0: Klip, 1: Streaming)
-        RsRx : in  std_logic := '1';                               -- Pin B18: UART RX dari PC
-        RsTx : out std_logic;                                      -- Pin A18: UART TX ke PC
-        led  : out std_logic_vector(7 downto 0)                    -- Pin U16..V14: Status LED
+        RsRx      : in  std_logic := '1';                               -- Pin B18: UART RX dari PC
+        RsTx      : out std_logic;                                      -- Pin A18: UART TX ke PC
+        led       : out std_logic_vector(7 downto 0);                   -- Pin U16..V14: Status LED
+
+        -- Antarmuka PMOD JA: Display OLED SPI SSD1306 (M4)
+        oled_res  : out std_logic := '1';
+        oled_dc   : out std_logic := '0';
+        oled_cs   : out std_logic := '1';
+        oled_sclk : out std_logic := '0';
+        oled_mosi : out std_logic := '0'
     );
 end entity top;
 
@@ -106,6 +113,14 @@ architecture rtl of top is
 
     signal sink_fb_addr: unsigned(9 downto 0);
     signal fb_rd_data  : std_logic_vector(7 downto 0);
+    signal fb_rd2_data : std_logic_vector(7 downto 0);
+
+    -- Sinyal Pengendali Display OLED SPI (M4)
+    signal oled_start         : std_logic := '0';
+    signal oled_busy          : std_logic;
+    signal oled_init_done     : std_logic;
+    signal oled_frame_pending : std_logic := '0';
+    signal oled_rd_addr       : std_logic_vector(9 downto 0);
 
     -- 7. ASCII Sink ke UART TX
     signal sink_start    : std_logic;
@@ -336,7 +351,9 @@ begin
             s_axis_ready   => fb_s_axis_ready,
             s_axis_last    => fb_s_axis_last,
             rd_addr        => sink_fb_addr,
-            rd_data        => fb_rd_data
+            rd_data        => fb_rd_data,
+            rd2_addr       => unsigned(oled_rd_addr),
+            rd2_data       => fb_rd2_data
         );
 
     -- Pemicu mulai display: M1 dipicu timer 30 FPS, M2 dipicu selesai swap buffer
@@ -377,6 +394,63 @@ begin
             tx_ready => sink_tx_ready,
             RsTx     => RsTx
         );
+
+    ---------------------------------------------------------------------------
+    -- 9b. Pengendali Display OLED SPI SSD1306 (oled_spi) - PMOD JA (M4)
+    ---------------------------------------------------------------------------
+    u_oled : entity work.oled_spi
+        generic map (
+            CLK_DIV         => 16,
+            REMAP_SEG       => x"A1",
+            REMAP_COM       => x"C8",
+            CONTRAST        => x"CF",
+            INVERT_DATA     => false,
+            READ_LATENCY    => 1,
+            RES_LOW_CYCLES  => 1_000,
+            RES_WAIT_CYCLES => 100_000,
+            CS_SETUP_CYCLES => 3,
+            CS_HOLD_CYCLES  => 2
+        )
+        port map (
+            clk       => clk,
+            rst       => rst_int,
+            start     => oled_start,
+            busy      => oled_busy,
+            rd_addr   => oled_rd_addr,
+            rd_data   => fb_rd2_data,
+            oled_res  => oled_res,
+            oled_dc   => oled_dc,
+            oled_cs   => oled_cs,
+            oled_sclk => oled_sclk,
+            oled_mosi => oled_mosi,
+            init_done => oled_init_done
+        );
+
+    -- Logika frame_pending pengendali OLED:
+    -- Flag frame_pending diset oleh pulsa swap (fb_swap_done).
+    -- oled_start dipancarkan hanya bila ada frame pending, oled_spi idle, dan init_done aktif.
+    -- Bekerja identik pada Mode M1 (Klip ROM) dan Mode M2 (Streaming UART).
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if rst_int = '1' then
+                oled_frame_pending <= '0';
+                oled_start         <= '0';
+            else
+                oled_start <= '0';
+
+                if fb_swap_done = '1' then
+                    oled_frame_pending <= '1';
+                end if;
+
+                if (oled_frame_pending = '1') and 
+                   (oled_busy = '0') and (oled_init_done = '1') and (oled_start = '0') then
+                    oled_start         <= '1';
+                    oled_frame_pending <= '0';
+                end if;
+            end if;
+        end if;
+    end process;
 
     ---------------------------------------------------------------------------
     -- 10. Logika Indikator Status LED
