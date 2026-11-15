@@ -13,7 +13,7 @@ Dokumen ringkasan eksekutif status terkini proyek, metrik implementasi, keputusa
 | **M2a** | Jalur Data Penerima Serial Streaming & Dekoder RLE (UART RX, FIFO 2KB, Parser, RLE Decoder) | **SELESAI** | 4 modul HDL lolos sintesis OOC (total 374 LUT, 320 FF, 1x RAMB18E1). 12 testbench xsim PASS (100%), termasuk tb_stream_rx byte-exact 90 frame & pengujian vektor galat. Integrasi ke top dijadwalkan pada M2b. |
 | **M2b** | Integrasi Top (`STREAMING_MODE`), Buffer Swap Tertunda, & Host Streamer PC | **tag m2b-boardless dibuat di aa81787 (2026-11-01); verifikasi independen pengguna 2026-11-01: sim_all.ps1 13 PASS dan pytest 44 lulus dijalankan pada tree yang python/stream_player.py-nya termodifikasi (belum di-commit); verifikasi Python pada tag persis: belum** | Seluruh 13 testbench xsim lolos (100% PASS), integrasi top.vhd streaming & delayed swap terverifikasi byte-exact 90 frame dan vektor galat. Catatan integritas berkas: tag `m2b-boardless` memuat `data/golden/ascii.bin` versi LF (93.870 B di git object store) [DIVERIFIKASI: `git cat-file -s`]; membutuhkan `core.autocrlf=true` di lingkungan Windows untuk menghasilkan 95.310 B [DIASUMSIKAN: butuh autocrlf=true untuk lulus]. Pada cabang `m3-wip`, `.gitattributes` telah dinormalisasi ke 95.310 B [DIVERIFIKASI]. |
 | **M3** | Output Audio Laptop (A1) & Status Audio FPGA (A2) | **Audio FPGA DIBATALKAN; Audio Laptop SINKRON (A1)** | Berdasarkan keputusan pengguna 2026-11-14 ("karena keterbatasan alat dan waktu, kami memutuskan untuk tidak jadi menggunakan speaker, jadi audio hanya dari laptop"), audio FPGA (A2) dibatalkan. Audio diputar eksklusif dari laptop (A1; stream_player.py, WASAPI + disiplin on). Modul daun audio_pwm dan audio_fifo berstatus "di luar lingkup (pengembangan lanjut), tidak diintegrasikan ke top". |
-| **M4** | Integrasi Menyeluruh, Demonstrasi Penuh, & Finalisasi Laporan | **DALAM PROSES (BAGIAN 4s: INTEGRASI OLED SIMULASI)** | Integrasi OLED SPI SSD1306 pada top.vhd dan frame_buffer.vhd (duplikasi BRAM Port B2, mem2) untuk simulasi. Audio FPGA (A2) dibatalkan / di luar lingkup. |
+| **M4** | Integrasi Menyeluruh, Demonstrasi Penuh, & Finalisasi Laporan | **DALAM PROSES (BAGIAN 4u: BUILD TERISOLASI M4 — belum terverifikasi pengguna)** | Integrasi OLED SPI SSD1306 pada `top.vhd` dan `frame_buffer.vhd` (duplikasi BRAM Port B2, `mem2`) terverifikasi di build terisolasi 5 konfigurasi (`baseline`, `A0_C0`, `A0_C8`, `A1_C0`, `A1_C8`; 3.266 LUT, 833 FF, WNS +1,345 ns). Audio FPGA (A2) dibatalkan / di luar lingkup; board fisik belum diuji. |
 
 ---
 
@@ -75,6 +75,21 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context` pada `xc
 | **I/O Pin** | **4 Pin** (`clk`, `btnC`, `RsTx`, `RsRx`) | 106 Pin | **3,77%** | Pemasangan pin sesuai Basys 3 |
 | **Ukuran Bitstream (Uncompressed)** | **2.192.221 Byte** (~17,54 Mbit) | 32 Mbit SPI Flash | 54,8% | Muat di flash Basys 3 |
 | **Ukuran Bitstream (Compressed)** | **549.964 Byte** (**~4,40 Mbit**) | 32 Mbit SPI Flash | **13,7%** | Kompresi bitstream 3,98x |
+
+#### 4. Implementasi Penuh Bitstream M4 Integrasi OLED & Varian Orientasi (`xc7a35tcpg236-1`)
+
+**Status verifikasi:** **belum terverifikasi pengguna** (dibangun menggunakan `vivado/build_variants.ps1` + `vivado/build_variants.tcl` dalam satu proses Vivado terpisah per konfigurasi; menggunakan `constraints/basys3.xdc` dan usulan `constraints/basys3_m4_pmod.proposed.xdc` [DIASUMSIKAN; Pmod JA belum terverifikasi di board]; audio FPGA dibatalkan / tidak disertakan).
+
+| Konfigurasi | Slice LUTs | Slice FF | F7 Muxes | F8 Muxes | RAMB18 (Tile) | WNS (ns) | WHS (ns) | DRC / CW | `.bit` Terkompresi (B) |
+|---|---|---|---|---|---|---|---|---|---|
+| `baseline` (tanpa `-generic`, bawaan `A1`/`C8`) | **3.266** (15,70%) | **833** (2,00%) | 242 | 97 | **3** (1,5) | **+1,345** | **+0,078** | 0 / 0 | **722.856** |
+| `A0_C0` (`OLED_REMAP_SEG=8'hA0`, `COM=8'hC0`) | **3.266** (15,70%) | **833** (2,00%) | 242 | 97 | **3** (1,5) | **+1,345** | **+0,078** | 0 / 0 | **722.856** |
+| `A0_C8` (`OLED_REMAP_SEG=8'hA0`, `COM=8'hC8`) | **3.266** (15,70%) | **833** (2,00%) | 242 | 97 | **3** (1,5) | **+1,345** | **+0,078** | 0 / 0 | **722.856** |
+| `A1_C0` (`OLED_REMAP_SEG=8'hA1`, `COM=8'hC0`) | **3.266** (15,70%) | **833** (2,00%) | 242 | 97 | **3** (1,5) | **+1,345** | **+0,078** | 0 / 0 | **722.856** |
+| `A1_C8` (`OLED_REMAP_SEG=8'hA1`, `COM=8'hC8`) | **3.266** (15,70%) | **833** (2,00%) | 242 | 97 | **3** (1,5) | **+1,345** | **+0,078** | 0 / 0 | **722.856** |
+
+- **Kesetaraan `baseline` vs `A1_C8`:** Identik di seluruh metrik utilisasi/timing (`3.266 LUT`, `833 FF`, `242 F7`, `97 F8`, `3 RAMB18` / `1,5 tile`, `WNS +1,345 ns`, `WHS +0,078 ns`), identik dengan metrik build 4s (`3.266 LUT / 833 FF / 722.856 B`), serta `.bin` mentah identik bit-per-bit (`722.648 B`).
+- **Utilisasi Hierarkis M4 (`utilization_hierarchical_*.rpt`, identik di kelima konfigurasi):** `u_source` (`frame_source`) = **2.607 LUT, 191 FF** (ROM klip utuh; pembanding M1 ROM = `2.606 LUT`); `u_rle_dec` = **152 LUT, 61 FF**; `u_oled` (`oled_spi`) = **127 LUT, 210 FF**; `u_parser` = **126 LUT, 126 FF**; `u_timer` = **64 LUT, 32 FF**; `u_fifo` (`rx_fifo`) = **59 LUT, 44 FF, 1 RAMB18**; `u_sink` = **49 LUT, 61 FF**; `(top)` = **2 LUT, 39 FF** (sisa LUT/FF dan `2 RAMB18` merupakan modul ter-*flatten* `u_buf`, `u_uart_rx`, `u_uart_tx`, `u_dec`).
 
 ---
 
@@ -208,7 +223,7 @@ Diukur secara terisolasi per modul (`synth_design -mode out_of_context` pada `xc
 2. **`hdl/audio_fifo.vhd` & `hdl/audio_pwm.vhd`:**
    - Status: **SELESAI DI SIMULASI** (`tb_audio_fifo`, `tb_audio_pwm`). Belum terintegrasi ke `top.vhd`, belum diuji di board fisik Basys 3.
 3. **`hdl/oled_spi.vhd`:**
-   - Status: **SELESAI DI SIMULASI** (`tb_oled_spi`). Belum terintegrasi ke `top.vhd`, belum ada konstrain XDC aktif, belum diuji di board fisik Basys 3.
+   - Status: **TERINTEGRASI KE `top.vhd` & SELESAI DI BUILD TERISOLASI** (`tb_oled_spi`, `tb_top_oled`; 127 LUT / 210 FF pada `utilization_hierarchical_*.rpt`; build terisolasi 5 konfigurasi selesai 0 DRC / 0 critical warning; konstrain `constraints/basys3_m4_pmod.proposed.xdc` masih usulan dan belum terverifikasi pengguna di board fisik Basys 3).
 
 ---
 

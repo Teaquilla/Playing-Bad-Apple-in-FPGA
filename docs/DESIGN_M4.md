@@ -59,9 +59,8 @@ Berikut adalah perbandingan parameter timing AC terhadap perancangan FSM master 
 >    Tabel 13-1 mencantumkan frekuensi osilator internal $F_{\text{OSC}}$: min $333\text{ kHz}$, tipikal $370\text{ kHz}$, maks $407\text{ kHz}$ (pada $V_{\text{DD}} = 2,8\text{ V}$).
 >    Laju frame pemindaian panel internal OLED dihitung dengan formula:
 >    $$F_{\text{FRM}} = F_{\text{OSC}} \times \frac{1}{D \times K \times 64}$$
->    Datasheet baris 792 menyatakan bahwa pada kondisi power-on reset, nilai $K = \text{Phase 1} + \text{Phase 2} + \text{BANK0 pulse width} = 2 + 2 + 50 = 54$. Pada kondisi reset default ini ($D=1, K=54$):
->    $$F_{\text{FRM, reset}} = \frac{370.000\text{ Hz}}{1 \times 54 \times 64} = \frac{370.000}{3.456} \approx 107,06\text{ Hz}\quad (\text{periode refresh internal } \approx 9,34\text{ ms})$$
->    Namun, pada inisialisasi yang menggunakan perintah `0xD9, 0xF1` (Phase 1 = 1 DCLK, Phase 2 = 15 DCLK):
+>    Datasheet baris 792 menyatakan bahwa pada kondisi power-on reset, nilai $K = \text{Phase 1} + \text{Phase 2} + \text{BANK0 pulse width} = 2 + 2 + 50 = 54$ (dengan pembagi $D = 1$; angka kondisi reset tersebut tidak dipakai karena urutan inisialisasi menulis `0xD9, 0xF1`).
+>    Pada inisialisasi yang menggunakan perintah `0xD9, 0xF1` (Phase 1 = 1 DCLK, Phase 2 = 15 DCLK):
 >    $$K = 1 + 15 + 50 = 66\quad \mathbf{[DIASUMSIKAN:\ perluasan\ rumus]}$$
 >    Sehingga laju refresh frame aktual panel internal menjadi:
 >    - Tipikal ($F_{\text{OSC}} = 370\text{ kHz}$):
