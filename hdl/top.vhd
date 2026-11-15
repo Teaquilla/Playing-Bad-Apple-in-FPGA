@@ -21,8 +21,10 @@ entity top is
         CLK_FREQ_HZ  : integer := 100_000_000;
         BAUD_RATE    : integer := 921_600;
         TARGET_FPS   : integer := 30;
-        TOTAL_FRAMES : integer := 90;
-        INIT_FILE    : string  := "data/golden/clip_bram_32bit.hex"
+        TOTAL_FRAMES   : integer := 90;
+        INIT_FILE      : string  := "data/golden/clip_bram_32bit.hex";
+        OLED_REMAP_SEG : std_logic_vector(7 downto 0) := x"A1";
+        OLED_REMAP_COM : std_logic_vector(7 downto 0) := x"C8"
     );
     port (
         clk  : in  std_logic;                                      -- Pin W5: Osilator 100 MHz
@@ -401,8 +403,8 @@ begin
     u_oled : entity work.oled_spi
         generic map (
             CLK_DIV         => 16,
-            REMAP_SEG       => x"A1",
-            REMAP_COM       => x"C8",
+            REMAP_SEG       => OLED_REMAP_SEG,
+            REMAP_COM       => OLED_REMAP_COM,
             CONTRAST        => x"CF",
             INVERT_DATA     => false,
             READ_LATENCY    => 1,

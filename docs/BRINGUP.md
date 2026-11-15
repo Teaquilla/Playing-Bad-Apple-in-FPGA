@@ -219,3 +219,74 @@ Untuk menguji performa jam audio (`AudioClock`), stabilitas penjadwalan frame vi
 - **Konfigurasi A1 yang Direkomendasikan di Dokumen untuk Laptop Ini [DIVERIFIKASI: keputusan tim 2026-11-03 & Bagian 4h]:**
   `--audio-hostapi wasapi --audio-discipline on` (alasan rekomendasi: latensi terendah 9,25 ms dan penilaian pengguna "sudah sinkron"; dalam hal jitter selang kirim setara MME ON; default CLI tetap off).
 
+---
+
+## 9. Checklist Bring-Up Integrasi OLED SSD1306 dan UART
+
+Bagian ini merangkum urutan bring-up perangkat keras lengkap (UART ASCII + modul OLED SPI SSD1306 7-pin) beserta audio laptop (A1; audio FPGA A2 dibatalkan sesuai keputusan pengguna 2026-11-14). Seluruh prosedur interaksi fisik dan pengamatan visual berstatus **[DIASUMSIKAN]**, kecuali parameter protokol SSD1306 dari datasheet Rev 1.1 yang secara eksplisit ditandai **[DIVERIFIKASI]** atau **[TIDAK TERVERIFIKASI di Rev 1.1]**.
+
+### 9.1 Urutan Bring-Up Bertahap (Checklist)
+
+- [ ] **(a) Mode Clip (`SW0 = 0`) Tanpa OLED (`[DIASUMSIKAN]`):**
+  1. Pastikan sakelar daya `SW16` pada posisi `OFF` dan modul OLED **belum** dipasang.
+  2. Program bitstream (contoh varian bawaan `scratch/build_variants/A1_C8/top_A1_C8_compressed.bit`) ke Basys 3.
+  3. Setel sakelar **`SW0` (pin `V17`) ke posisi `0` (DOWN)** dan nyalakan `SW16 = ON`.
+  4. Buka terminal serial (`921600` baud, 8N1, tanpa flow control) dan pastikan terminal menampilkan animasi ASCII 90 frame dari klip ROM internal dengan lancar tanpa karakter rusak (`[DIASUMSIKAN]`).
+
+- [ ] **(b) Mode Streaming (`SW0 = 1`) dari `--fake-fpga` lalu Port Serial Nyata (`[DIASUMSIKAN]`):**
+  1. Uji perangkat lunak host di laptop terlebih dahulu secara offline menggunakan `--fake-fpga`:
+     ```powershell
+     .\.venv\Scripts\python.exe python/stream_player.py --fake-fpga --clip data/golden/stream_clip.bin --audio data/audio/bad_apple.wav --audio-start-sec 10.0 --audio-hostapi wasapi --audio-discipline on
+     ```
+  2. Tutup terminal emulator agar handle port COM bebas, pastikan FTDI Latency Timer telah disetel ke `1 ms`, lalu geser sakelar **`SW0` ke posisi `1` (UP)**.
+  3. Jalankan `stream_player.py` ke port serial nyata (ganti `COMx` dengan port terdeteksi):
+     ```powershell
+     .\.venv\Scripts\python.exe python/stream_player.py --port COMx --baud 921600 --clip data/golden/stream_clip.bin --fps 30 --av-offset-ms 0
+     ```
+  4. Pastikan terminal host menampilkan animasi streaming UART RX -> RLE -> ASCII tanpa frame hilang (`[DIASUMSIKAN]`).
+
+- [ ] **(c) Pemasangan Modul OLED 7-Pin ke Header Pmod JA (`[DIASUMSIKAN]`):**
+  1. **Matikan daya (`SW16 = OFF`) dan cabut kabel USB** sebelum menyambungkan kabel jumper.
+  2. **Wajib diverifikasi pengguna terlebih dahulu:** Cocokkan pemetaan pada `constraints/basys3_m4_pmod.proposed.xdc` dengan **Tabel 6 *Basys 3 Reference Manual*** serta periksa urutan label (*silkscreen*) pin pada modul fisik OLED SSD1306 sebelum menghubungkan kabel (`[DIASUMSIKAN: belum diverifikasi pada board fisik]`).
+  3. Pemetaan kabel usulan (`constraints/basys3_m4_pmod.proposed.xdc`, `[DIASUMSIKAN]`):
+
+     | Sinyal Modul OLED | Header Pmod JA Basys 3 | Pin FPGA (`PACKAGE_PIN`) | Keterangan |
+     |---|---|---|---|
+     | **GND** | Pin 5 / Pin 11 Pmod JA | — | Ground catu daya (`[DIASUMSIKAN]`) |
+     | **VCC (3,3 V)** | Pin 6 / Pin 12 Pmod JA | — | Catu daya 3,3 V (`[DIASUMSIKAN]`) |
+     | **RES** (`oled_res`) | JA1 (Pin 1) | `J1` (`LVCMOS33`) | Reset aktif LOW (`[DIASUMSIKAN]`) |
+     | **DC** (`oled_dc`) | JA2 (Pin 2) | `L2` (`LVCMOS33`) | Data/Command (`0`: Cmd, `1`: Data) (`[DIASUMSIKAN]`) |
+     | **CS** (`oled_cs`) | JA3 (Pin 3) | `J2` (`LVCMOS33`) | Chip Select SPI aktif LOW (`[DIASUMSIKAN]`) |
+     | **SCLK** (`oled_sclk`) | JA4 (Pin 4) | `G2` (`LVCMOS33`) | Clock SPI (~6,25 MHz) (`[DIASUMSIKAN]`) |
+     | **MOSI** (`oled_mosi`) | JA7 (Pin 7) | `H1` (`LVCMOS33`) | Data SPI SDIN (`[DIASUMSIKAN]`) |
+
+  4. Hubungkan kembali USB, nyalakan daya, dan amati tampilan pada layar OLED baik di Mode Clip (`SW0 = 0`) maupun Mode Streaming (`SW0 = 1`).
+
+- [ ] **(d) Prosedur Kalibrasi `--av-offset-ms` (Audio Laptop terhadap Video Terminal) (`[DIASUMSIKAN]`):**
+  1. Jalankan pemutar dengan audio laptop aktif (`WASAPI` + `--audio-discipline on`):
+     ```powershell
+     .\.venv\Scripts\python.exe python/stream_player.py --port COMx --baud 921600 --clip data/golden/stream_clip.bin --audio data/audio/bad_apple.wav --audio-start-sec 10.0 --audio-hostapi wasapi --audio-discipline on --fps 30 --av-offset-ms 0
+     ```
+  2. Amati ketukan musik/audio dari speaker laptop terhadap transisi visual di terminal (dan di OLED).
+  3. Sesuaikan nilai `--av-offset-ms` secara bertahap (misalnya langkah `10` atau `20` ms; batas bawah `> -66,67` ms pada 30 FPS):
+     - Jika video terlihat **terlambat** di belakang audio, gunakan nilai `--av-offset-ms` lebih **negatif** (contoh `-15`, `-30`).
+     - Jika video terlihat **terlalu cepat** mendahului audio, gunakan nilai `--av-offset-ms` **positif** (contoh `+15`, `+30`).
+  4. Catat nilai `--av-offset-ms` optimal yang terasa paling selaras menurut penilaian pengamatan visual dan auditori langsung (`[DIASUMSIKAN]`).
+
+### 9.2 Gejala dan Tindakan Diagnostik OLED
+
+| Gejala | Kemungkinan Penyebab & Status Datasheet | Tindakan Pemeriksaan / Perbaikan (`[DIASUMSIKAN]` kecuali disebut lain) |
+|---|---|---|
+| **Layar gelap total** | Urutan inisialisasi menyertakan perintah *Charge Pump Setting* `8D 14` (`[TIDAK TERVERIFIKASI di Rev 1.1]`), atau masalah catu `VCC` 3,3 V / `GND`, sinyal `RES`, atau kabel SPI longgar. | 1. Periksa koneksi `VCC` 3,3 V dan `GND` ke pin daya Pmod JA dengan multimeter (`[DIASUMSIKAN]`).<br>2. Periksa kontinuitas kabel `RES`, `DC`, `CS`, `SCLK`, `MOSI` terhadap urutan *silkscreen* modul (`[DIASUMSIKAN]`).<br>3. Verifikasi di simulasi/datasheet bahwa pulsa reset LOW terpenuhi: `RES_LOW_CYCLES = 1000` (10 us $\ge 3\ \mu\text{s}$ `[DIVERIFIKASI, SSD1306 Rev 1.1 Tabel 13-1 hlm. 49]`); waktu tunggu pasca-reset `RES_WAIT_CYCLES = 100000` (1 ms `[DIASUMSIKAN]`).<br>4. Jika tetap gelap meski `VCC`/`RES`/SPI benar, modul mungkin membutuhkan nilai/urutan `8D` berbeda atau catu eksternal karena perintah `8D 14` belum terverifikasi di Rev 1.1 (`[DIASUMSIKAN]`). |
+| **Gambar terbalik atau *mirror*** | Orientasi fisik pemasangan modul OLED berlawanan dengan pemetaan default `REMAP_SEG = A1h` dan `REMAP_COM = C8h` (`[DIVERIFIKASI, Tabel 9-1 SSD1306]`; kecocokan fisik `[DIASUMSIKAN]`). | Ganti bitstream dengan memilih salah satu dari 4 varian orientasi hasil `vivado/build_variants.tcl` (`[DIASUMSIKAN]`):<br>- `A1_C8` (`OLED_REMAP_SEG=A1h`, `OLED_REMAP_COM=C8h`) — bawaan.<br>- `A0_C8` (`A0h`, `C8h`) — membalik arah kolom horizontal (Segment).<br>- `A1_C0` (`A1h`, `C0h`) — membalik arah baris vertikal (COM).<br>- `A0_C0` (`A0h`, `C0h`) — membalik horizontal dan vertikal (rotasi 180 derajat). |
+| **Baris acak atau bergantian (*interleaved / halved*)** | Konfigurasi pin COM panel tidak cocok dengan nilai inisialisasi `DA 12` vs `DA 02` (`[DIVERIFIKASI: nilai reset perintah DA adalah 12h pada Tabel 9-1 SSD1306 Rev 1.1]`). | Jika separuh baris tampak kosong/melompat pada modul panel tertentu, ubah konstanta perintah `DA 12` pada `INIT_SEQ` `hdl/oled_spi.vhd` menjadi `DA 02` (Sequential COM pin configuration), bangun ulang bitstream, dan uji lagi (`[DIASUMSIKAN]`). |
+| **Kontras terlalu redup atau terlalu silau** | Pengaturan register kontras default `81 CF` (`[DIVERIFIKASI: perintah 81h dan nilai reset/konfigurasi rentang 00h..FFh pada Tabel 9-1 SSD1306 Rev 1.1]`; kecerahan visual `[DIASUMSIKAN]`). | Sesuaikan generic `CONTRAST` pada `oled_spi` dalam rentang `00h`..`FFh` sesuai kenyamanan tampilan fisik panel (`[DIASUMSIKAN]`). |
+| **Tearing visual ringan saat gerakan cepat** | Transfer SPI penuh 1 frame (1.024 byte @ 6,25 MHz) memakan waktu ~1,38 ms tanpa sinkronisasi terhadap siklus refresh internal GDDRAM panel (~107 Hz / periode ~9,3 ms) (`[DIASUMSIKAN]`). | Catat lokasi dan tingkat keparahan *tearing* saat pemutaran video 30 FPS (`[DIASUMSIKAN]`). Kondisi ini merupakan perilaku asinkron yang sudah diprediksi pada perancangan (`docs/DESIGN_M4.md`); uji pada board untuk menilai dampak visual nyatanya (`[DIASUMSIKAN]`). |
+
+### 9.3 Kriteria Lulus Bring-Up `[DIASUMSIKAN]`
+
+- [ ] **Frame bergerak mulus:** Animasi berjalan stabil mendekati 30 FPS pada Mode Clip (`SW0 = 0`) maupun Mode Streaming (`SW0 = 1`) tanpa patah-patah berkepanjangan (`[DIASUMSIKAN]`).
+- [ ] **Tanpa tearing yang mengganggu:** Tidak ada *tearing* berat atau korupsi bingkai yang mengganggu keterbacaan visual animasi di layar OLED (`[DIASUMSIKAN]`).
+- [ ] **Terminal dan OLED sinkron secara visual (beserta audio laptop):** Tampilan ASCII di terminal PC dan gambar grafis pada modul OLED menampilkan adegan frame yang sejalan secara visual tanpa penyimpangan nyata terhadap audio laptop setelah kalibrasi `--av-offset-ms` (`[DIASUMSIKAN]`).
+
+
