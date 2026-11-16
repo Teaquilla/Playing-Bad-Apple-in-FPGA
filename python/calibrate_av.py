@@ -4,15 +4,17 @@ Pembantu kalibrasi interaktif nilai --av-offset-ms pada python/stream_player.py.
 Fitur:
 1. Menjalankan stream_player.py berurutan untuk daftar --av-offset-ms
    (default: -80,-40,0,40,80), dengan --audio-hostapi wasapi --audio-discipline on
-   serta --max-frames 600 per langkah.
-2. Menanyakan pengguna 'sinkron? (y/n)' setelah tiap langkah.
-3. Mencetak rentang offset yang dinilai sinkron dan menyarankan nilai tengahnya.
-4. Mode --dry-run mencetak perintah tanpa menjalankan audio atau subprocess.
+   serta --clip data/stream_full.bin --start-frame 300 --audio-start-sec 10.0 --max-frames 600 per langkah.
+2. Memvalidasi konsistensi start_frame == audio_start_sec * fps dan kecukupan jumlah paket clip.
+3. Menanyakan pengguna 'sinkron? (y/n)' setelah tiap langkah.
+4. Mencetak rentang offset yang dinilai sinkron dan menyarankan nilai tengahnya.
+5. Mode --dry-run mencetak perintah tanpa menjalankan audio atau subprocess.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +23,36 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+from python.stream_player import split_stream_into_packets
+
+
+DEFAULT_CLIP = "data/stream_full.bin"
+DEFAULT_START_FRAME = 300
+DEFAULT_AUDIO_START_SEC = 10.0
+DEFAULT_FRAMES = 600
+
+
+def validate_clip_frame_count(clip_path: str, start_frame: int, frames: int) -> int:
+    """Memvalidasi bahwa berkas clip memuat cukup paket untuk rentang [start_frame, start_frame + frames)."""
+    if frames <= 0:
+        raise ValueError(f"--frames harus > 0, didapat: {frames}")
+    if start_frame < 0:
+        raise ValueError(f"--start-frame harus >= 0, didapat: {start_frame}")
+    if not os.path.exists(clip_path):
+        raise FileNotFoundError(f"Berkas clip tidak ditemukan: {clip_path}")
+
+    with open(clip_path, "rb") as f:
+        stream_data = f.read()
+
+    packets = split_stream_into_packets(stream_data)
+    total_packets = len(packets)
+    if start_frame + frames > total_packets:
+        raise ValueError(
+            f"Rentang frame [{start_frame}, {start_frame + frames}) melebihi jumlah paket "
+            f"pada {clip_path} ({total_packets} paket)."
+        )
+    return total_packets
 
 
 def parse_offsets(offsets_str: str) -> List[float]:
@@ -50,17 +82,28 @@ def build_stream_player_cmd(
     offset_ms: float,
     port: str = "COM3",
     baud: int = 921600,
-    frames: int = 600,
-    start_frame: int = 0,
+    frames: int = DEFAULT_FRAMES,
+    start_frame: int = DEFAULT_START_FRAME,
     fps: float = 30.0,
-    clip: str = "data/golden/stream_clip.bin",
+    clip: str = DEFAULT_CLIP,
     audio: str = "data/audio/bad_apple.wav",
-    audio_start_sec: float = 10.0,
+    audio_start_sec: float = DEFAULT_AUDIO_START_SEC,
     fake_fpga: bool = False,
     no_display: bool = False,
     python_exe: str = sys.executable,
 ) -> List[str]:
     """Menyusun daftar argumen CLI untuk memanggil python/stream_player.py."""
+    if fps <= 0:
+        raise ValueError(f"--fps harus > 0, didapat: {fps}")
+    expected_start_frame = audio_start_sec * fps
+    if abs(start_frame - expected_start_frame) > 1e-3:
+        raise ValueError(
+            f"--start-frame ({start_frame}) tidak konsisten dengan "
+            f"--audio-start-sec * --fps ({audio_start_sec} * {fps} = {expected_start_frame:.3f})."
+        )
+    if os.path.exists(clip):
+        validate_clip_frame_count(clip, start_frame, frames)
+
     cmd = [
         python_exe,
         "python/stream_player.py",
@@ -128,12 +171,12 @@ def run_calibration(
     offsets: Sequence[float],
     port: str = "COM3",
     baud: int = 921600,
-    frames: int = 600,
-    start_frame: int = 0,
+    frames: int = DEFAULT_FRAMES,
+    start_frame: int = DEFAULT_START_FRAME,
     fps: float = 30.0,
-    clip: str = "data/golden/stream_clip.bin",
+    clip: str = DEFAULT_CLIP,
     audio: str = "data/audio/bad_apple.wav",
-    audio_start_sec: float = 10.0,
+    audio_start_sec: float = DEFAULT_AUDIO_START_SEC,
     fake_fpga: bool = False,
     no_display: bool = False,
     dry_run: bool = False,
@@ -206,14 +249,24 @@ def main(argv: Optional[List[str]] = None) -> int:
         default="-80,-40,0,40,80",
         help="Daftar offset ms dipisahkan koma (default: -80,-40,0,40,80).",
     )
-    parser.add_argument("--frames", type=int, default=600, help="Jumlah frame per langkah (default: 600).")
-    parser.add_argument("--start-frame", type=int, default=0, help="Indeks frame awal klip (default: 0).")
+    parser.add_argument(
+        "--frames",
+        type=int,
+        default=DEFAULT_FRAMES,
+        help=f"Jumlah frame per langkah (default: {DEFAULT_FRAMES}).",
+    )
+    parser.add_argument(
+        "--start-frame",
+        type=int,
+        default=DEFAULT_START_FRAME,
+        help=f"Indeks frame awal klip (default: {DEFAULT_START_FRAME}).",
+    )
     parser.add_argument("--fps", type=float, default=30.0, help="Laju frame per detik (default: 30.0).")
     parser.add_argument(
         "--clip",
         type=str,
-        default="data/golden/stream_clip.bin",
-        help="Berkas aliran paket video biner (default: data/golden/stream_clip.bin; pakai data/stream_full.bin untuk >= 600 frame penuh).",
+        default=DEFAULT_CLIP,
+        help=f"Berkas aliran paket video biner (default: {DEFAULT_CLIP}).",
     )
     parser.add_argument(
         "--audio",
@@ -224,8 +277,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--audio-start-sec",
         type=float,
-        default=10.0,
-        help="Posisi awal audio dalam detik (default: 10.0).",
+        default=DEFAULT_AUDIO_START_SEC,
+        help=f"Posisi awal audio dalam detik (default: {DEFAULT_AUDIO_START_SEC}).",
     )
     parser.add_argument(
         "--fake-fpga",

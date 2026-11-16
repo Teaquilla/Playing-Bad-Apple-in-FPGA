@@ -1,10 +1,20 @@
 """python/board_check.py
 Alat verifikasi loopback UART cepat PC <-> Basys 3 (tanpa ketergantungan UI berat).
 
+Catatan Mode Switch & Pacing Hardware:
+- Pastikan switch hardware Basys 3 pada posisi SW0 = 1 (Mode Streaming UART RX M2;
+  SW0 = 0 = Mode Klip ROM M1).
+- Hardware FPGA membuang paket baru yang tiba sebelum frame ASCII sebelumnya selesai
+  dikirim (~11,5 ms pada 921.600 baud; delayed swap pada frame_buffer). Karena itu,
+  pengiriman multi-frame memakai pacing default --pace-fps 30.0 atau opsi --wait-each.
+- Keterbatasan model simulasi: FakeFPGA memproses setiap paket secara sinkron di memori
+  dan tidak memodelkan frame drop akibat pengiriman paket tanpa pacing.
+
 Fitur:
 1. Menemukan port serial via `serial.tools.list_ports` beserta nama dan `VID:PID`.
 2. Membuka koneksi 921.600 baud 8N1 (atau FakeFPGA melalui `--fake-fpga`).
-3. Mengirim N paket video valid (`--frames 1..90` dari `data/golden/stream_clip.bin`).
+3. Mengirim N paket video valid (`--frames 1..90` dari `data/golden/stream_clip.bin`)
+   dengan pacing `--pace-fps` (default 30,0 FPS) atau `--wait-each`.
 4. Membaca balik aliran ASCII (harapan 1.059 byte per frame), memverifikasi:
    - kesesuaian jumlah byte (`1.059 * N`),
    - kecocokan byte-exact terhadap `data/golden/ascii.hex`,
@@ -178,16 +188,38 @@ def run_board_check(
     expected_ascii: bytes,
     timeout: float = 2.0,
     perf_counter: Callable[[], float] = time.perf_counter,
+    pace_fps: Optional[float] = 30.0,
+    wait_each: bool = False,
+    sleep_fn: Optional[Callable[[float], None]] = None,
 ) -> Dict[str, Any]:
-    """Mengirim paket video, membaca balik ASCII, dan memverifikasi count, golden, serta timeout."""
+    """Mengirim paket video dengan pacing/wait-each, membaca balik ASCII, dan memverifikasi hasil.
+
+    Catatan hardware: FPGA membuang paket yang tiba sebelum frame ASCII sebelumnya selesai
+    dikirim (~11,5 ms; delayed swap di frame_buffer), sedangkan FakeFPGA tidak memodelkan drop ini.
+    """
     if timeout <= 0:
         raise ValueError(f"--timeout harus > 0, didapat: {timeout}")
+    if pace_fps is not None and pace_fps < 0:
+        raise ValueError(f"--pace-fps harus >= 0, didapat: {pace_fps}")
 
     expected_bytes = len(expected_ascii)
     received = bytearray()
+    send_timestamps: List[float] = []
     first_byte_sec: Optional[float] = None
     last_byte_sec: Optional[float] = None
     timed_out_flag = False
+
+    def _sleep(wait_dt: float) -> None:
+        if wait_dt <= 0:
+            return
+        if sleep_fn is not None:
+            sleep_fn(wait_dt)
+            return
+        clock_obj = getattr(perf_counter, "__self__", None)
+        if clock_obj is not None and callable(getattr(clock_obj, "advance", None)):
+            clock_obj.advance(wait_dt)
+        elif perf_counter is time.perf_counter:
+            time.sleep(wait_dt)
 
     def _record_chunk(chunk: bytes) -> None:
         nonlocal first_byte_sec, last_byte_sec
@@ -198,14 +230,53 @@ def run_board_check(
         received.extend(chunk)
 
     t_send = perf_counter()
-    for pkt in packets:
+    for k, pkt in enumerate(packets):
+        if (not wait_each) and pace_fps and pace_fps > 0:
+            t_target = t_send + (k / pace_fps)
+            now = perf_counter()
+            wait_dt = t_target - now
+            if wait_dt > 0:
+                remaining_timeout = (t_send + timeout) - now
+                if remaining_timeout <= 0:
+                    timed_out_flag = True
+                    break
+                if wait_dt > remaining_timeout:
+                    _sleep(remaining_timeout)
+                    timed_out_flag = True
+                    break
+                _sleep(wait_dt)
+
+        send_timestamps.append(perf_counter())
         transport.write(pkt)
-        if getattr(transport, "in_waiting", 0) > 0:
+
+        if wait_each:
+            target_rx = (k + 1) * ASCII_FRAME_LEN
+            empty_reads = 0
+            while len(received) < target_rx:
+                now = perf_counter()
+                if now - t_send >= timeout:
+                    timed_out_flag = True
+                    break
+                read_len = max(4096, expected_bytes - len(received))
+                chunk = transport.read(read_len)
+                if chunk:
+                    empty_reads = 0
+                    _record_chunk(chunk)
+                else:
+                    empty_reads += 1
+                    if perf_counter() - t_send >= timeout or empty_reads >= 10000:
+                        timed_out_flag = True
+                        break
+                    _sleep(0.002)
+            if timed_out_flag:
+                break
+        elif getattr(transport, "in_waiting", 0) > 0:
             early = transport.read(max(4096, expected_bytes - len(received)))
             if early:
                 _record_chunk(early)
 
-    while True:
+    empty_reads = 0
+    while not timed_out_flag:
         waiting = getattr(transport, "in_waiting", 0)
         if len(received) >= expected_bytes and waiting == 0:
             break
@@ -218,13 +289,14 @@ def run_board_check(
         read_len = max(4096, expected_bytes - len(received))
         chunk = transport.read(read_len)
         if chunk:
+            empty_reads = 0
             _record_chunk(chunk)
         else:
-            if perf_counter() - t_send >= timeout:
+            empty_reads += 1
+            if perf_counter() - t_send >= timeout or empty_reads >= 10000:
                 timed_out_flag = True
                 break
-            if perf_counter is time.perf_counter:
-                time.sleep(0.002)
+            _sleep(0.002)
 
     elapsed_sec = perf_counter() - t_send
     received_bytes = bytes(received)
@@ -249,13 +321,17 @@ def run_board_check(
         "first_byte_sec": first_byte_sec,
         "last_byte_sec": last_byte_sec,
         "elapsed_sec": elapsed_sec,
+        "send_timestamps": send_timestamps,
         "passed": passed,
     }
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Uji loopback UART 921.600 8N1 PC <-> Basys 3 (kirim paket video, verifikasi ASCII golden)."
+        description=(
+            "Uji loopback UART 921.600 8N1 PC <-> Basys 3 (kirim paket video, verifikasi ASCII golden). "
+            "Wajib set switch SW0 = 1 (Mode Streaming UART RX M2; SW0 = 0 = Mode Klip ROM M1)."
+        )
     )
     parser.add_argument(
         "--port",
@@ -280,6 +356,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         type=float,
         default=2.0,
         help="Batas waktu tunggu penerimaan seluruh byte ASCII dalam detik (default: 2.0).",
+    )
+    parser.add_argument(
+        "--pace-fps",
+        type=float,
+        default=30.0,
+        help="Laju pacing pengiriman antar-paket dalam FPS (default: 30.0; 0 menonaktifkan pacing). Diabaikan jika --wait-each aktif.",
+    )
+    parser.add_argument(
+        "--wait-each",
+        action="store_true",
+        default=False,
+        help="Tunggu hingga 1.059 byte ASCII frame k diterima sebelum mengirim paket k+1 (default: False).",
     )
     parser.add_argument(
         "--fake-fpga",
@@ -345,6 +433,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             packets=packets,
             expected_ascii=expected_ascii,
             timeout=args.timeout,
+            pace_fps=args.pace_fps,
+            wait_each=args.wait_each,
         )
     finally:
         transport.close()
