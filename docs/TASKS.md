@@ -51,7 +51,7 @@ Legenda status: `[ ]` belum, `[~]` berjalan, `[x]` selesai dan terverifikasi.
 | T1.5 | `decoder` lurus | Keluaran = masukan, teruji di simulasi dan rantai top | [x] |
 | T1.6 | `frame_buffer` double buffer dan testbench | Sink tidak pernah membaca frame setengah tertimpa; `read_busy` menolak swap; `underrun` dan `overrun` teruji | [x] |
 | T1.7 | `ascii_sink` dan testbench | Keluaran 90 frame (95.310 byte) byte-exact cocok 100% terhadap `ascii.bin`/`ascii.hex`; uji pola non-uniform lulus | [x] |
-| T1.8 | Integrasi `top` dan simulasi end-to-end | Mode dipercepat 90 frame (95.310 byte) dan mode real-time 921.600 baud lulus byte-exact di RTL dan funcsim | [x] |
+| T1.8 | Integrasi `top` dan simulasi end-to-end | Mode dipercepat 90 frame (95.310 byte) dan mode real-time 921.600 baud lulus byte-exact di RTL dan `funcsim` (**`tb_top_funcsim` khusus M1**: `gen_funcsim.tcl` membaca 7 berkas M1 tanpa `uart_rx`, `rx_fifo`, `packet_parser`, `rle_decoder`, `oled_spi`; `tb_top_funcsim.vhd` memetakan 5 port saja) | [x] |
 | T1.9 | Sintesis, implementasi, laporan timing dan sumber daya | Tidak ada pelanggaran timing (WNS = +1.485 ns, TNS = 0); utilisasi LUT 13,22%, BRAM 0,5 tile; bitstream 4,40 Mbit | [x] |
 | T1.10 | Uji hardware: skrip pyserial menangkap N byte dan membandingkan dengan `ascii.bin` | Uji offline pyserial `loop://` 4 kasus lulus pytest; **Uji di board fisik tertunda** (menunggu ketersediaan board) | [ ] (uji board tertunda) |
 | T1.11 | **GATE:** tinjau laporan M1, tutup M1 setelah uji board | Seluruh RTL, simulasi pasca-sintesis, timing, dan bitstream M1 selesai; GATE formal menunggu uji board fisik | [ ] (menunggu board) |
@@ -101,7 +101,7 @@ Legenda status: `[ ]` belum, `[~]` berjalan, `[x]` selesai dan terverifikasi.
 | T4.1 | **GATE:** tutup D-7 (SPI atau I2C) sesuai modul yang dibeli | Dicatat | [ ] |
 | T4.2 | Model perilaku SSD1306 di simulasi (rekonstruksi gambar dari byte) | Model menghasilkan gambar yang benar dari urutan inisialisasi dan data uji | [ ] |
 | T4.3 | Master SPI/I2C dan testbench | Waktu dan protokol sesuai (`oled_spi.vhd` dan `tb_oled_spi.vhd` selesai simulasi, READ_LATENCY=1 dan generic 2 terverifikasi). Belum terintegrasi ke top; belum diuji di board. | [-] |
-| T4.4 | `oled_sink`: urutan inisialisasi dan konversi ke page-addressing | Gambar rekonstruksi di model sama dengan golden | [ ] |
+| T4.4 | `oled_sink`: urutan inisialisasi dan konversi ke page-addressing | Gambar rekonstruksi di model sama dengan golden (**catatan:** untuk M4 tidak ada uji gate-level / `funcsim`; `tb_top_funcsim` hanya berlaku untuk M1) | [ ] |
 | T4.5 | Uji gambar statis lalu video di layar fisik | Tampil benar | [ ] |
 
 ---

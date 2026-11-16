@@ -258,7 +258,7 @@ Top-level entity (`hdl/top.vhd`) yang mengintegrasikan seluruh subsistem:
 1. **Golden vector dari Python (M0):** ekspor `frames.bin` (format kanonik) dan `ascii.bin` (hasil renderer referensi). File kecil ini boleh di-commit; video sumber dan keluaran besar tidak.
 2. **Uji unit per modul:** tiap modul di bagian 4 punya testbench sendiri dengan kasus tepi (awal/akhir frame, `ready` yang naik-turun, reset di tengah transfer).
 3. **Model UART di testbench:** sampel `tx` pada laju baud, susun kembali byte, lalu bandingkan dengan `ascii.bin`. Perbandingan harus byte-exact.
-4. **Uji integrasi:** `frame_source → decoder → frame_buffer → ascii_sink → uart_tx` pada simulasi penuh dengan klip uji.
+4. **Uji integrasi:** `frame_source → decoder → frame_buffer → ascii_sink → uart_tx` pada simulasi penuh dengan klip uji. Catatan batas simulasi gate-level (`funcsim`): `sim/tb_top_funcsim.vhd` dan `vivado/gen_funcsim.tcl` **hanya berlaku untuk M1** (hanya membaca 7 berkas M1 tanpa `uart_rx`, `rx_fifo`, `packet_parser`, `rle_decoder`, `oled_spi`, dan `tb_top_funcsim.vhd` memetakan 5 port saja: `clk`, `btnC`, `RsRx`, `RsTx`, `led`). Untuk M4 **tidak ada uji gate-level** (`funcsim`).
 5. **Uji di hardware tanpa mengandalkan mata:** skrip Python (pyserial) menangkap N byte dari port serial dan membandingkannya dengan `ascii.bin`. Setelah itu baru dilihat di terminal.
 6. **Laporan sumber daya dan timing** dari Vivado dilampirkan pada tiap milestone (tidak boleh ada pelanggaran timing).
 
