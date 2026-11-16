@@ -22,12 +22,19 @@ from python.board_check import (
     select_serial_port,
 )
 from python.calibrate_av import (
+    DEFAULT_AUDIO_START_SEC,
+    DEFAULT_CLIP,
+    DEFAULT_FRAMES,
+    DEFAULT_START_FRAME,
+    build_stream_player_cmd,
     main as calibrate_main,
     parse_offsets,
     parse_yes_no,
     run_calibration,
     summarize_calibration,
+    validate_clip_frame_count,
 )
+from python.stream_player import FakeClock, FakeFPGA, FakeTransport
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -290,3 +297,179 @@ def test_calibrate_av_dry_run_and_answer_parsing(capsys):
     assert "-40 ms s.d. 40 ms" in out
     assert "0 ms" in out
     assert summarize_calibration([])["midpoint_offset"] is None
+
+
+def test_calibrate_av_default_cmd_and_alignment():
+    """Memverifikasi default build_stream_player_cmd (clip full, start 300, audio 10.0s, 600 frame)."""
+    assert DEFAULT_CLIP == "data/stream_full.bin"
+    assert DEFAULT_START_FRAME == 300
+    assert DEFAULT_AUDIO_START_SEC == 10.0
+    assert DEFAULT_FRAMES == 600
+
+    cmd = build_stream_player_cmd(0.0)
+    joined = " ".join(cmd)
+    assert "--clip data/stream_full.bin" in joined
+    assert "--start-frame 300" in joined
+    assert "--audio-start-sec 10.0" in joined
+    assert "--max-frames 600" in joined
+    assert DEFAULT_START_FRAME == pytest.approx(DEFAULT_AUDIO_START_SEC * 30.0)
+
+
+def test_calibrate_av_start_frame_audio_mismatch_raises():
+    """Ketidakcocokan start_frame vs audio_start_sec * fps wajib melempar ValueError."""
+    with pytest.raises(ValueError, match="tidak konsisten"):
+        build_stream_player_cmd(0.0, start_frame=0, audio_start_sec=10.0, fps=30.0)
+
+    with pytest.raises(ValueError, match="tidak konsisten"):
+        build_stream_player_cmd(0.0, start_frame=300, audio_start_sec=5.0, fps=30.0)
+
+
+def test_calibrate_av_clip_frame_count_bounds():
+    """Memvalidasi batas jumlah paket clip: 600 frame pada stream_clip.bin gagal, pada stream_full.bin lolos."""
+    # data/golden/stream_clip.bin hanya berisi 90 frame
+    with pytest.raises(ValueError, match="melebihi jumlah paket"):
+        validate_clip_frame_count(STREAM_CLIP, start_frame=0, frames=600)
+
+    with pytest.raises(ValueError, match="melebihi jumlah paket"):
+        build_stream_player_cmd(
+            0.0,
+            clip="data/golden/stream_clip.bin",
+            start_frame=0,
+            audio_start_sec=0.0,
+            frames=600,
+        )
+
+    with pytest.raises(ValueError):
+        validate_clip_frame_count(STREAM_CLIP, start_frame=0, frames=0)
+
+    with pytest.raises(ValueError):
+        validate_clip_frame_count(STREAM_CLIP, start_frame=-1, frames=10)
+
+    # data/stream_full.bin berisi 1000 paket -> [300, 900) valid
+    full_clip = str(REPO_ROOT / "data" / "stream_full.bin")
+    total_pkts = validate_clip_frame_count(full_clip, start_frame=300, frames=600)
+    assert total_pkts == 1000
+    cmd = build_stream_player_cmd(
+        -20.0,
+        clip="data/stream_full.bin",
+        start_frame=300,
+        audio_start_sec=10.0,
+        frames=600,
+    )
+    assert "--av-offset-ms" in cmd and "-20" in cmd
+
+
+def test_board_check_pacing_default_and_custom_fps():
+    """Memverifikasi pacing default 30.0 FPS dan kustom 50.0 FPS dengan jam tiruan."""
+    packets = load_golden_packets(clip_path=STREAM_CLIP, frames=5)
+    expected = load_golden_ascii_hex(hex_path=ASCII_HEX, expected_bytes=5 * ASCII_FRAME_LEN)
+
+    # Default pace_fps=30.0 via AdvancingFakeClock (memakai .advance otomatis)
+    clk_default = AdvancingFakeClock()
+    res_default = run_board_check(
+        transport=FakeTransport(fake_fpga=FakeFPGA()),
+        packets=packets,
+        expected_ascii=expected,
+        timeout=2.0,
+        perf_counter=clk_default.now,
+    )
+    assert res_default["passed"] is True
+    assert len(res_default["send_timestamps"]) == 5
+    for k in range(1, 5):
+        dt = res_default["send_timestamps"][k] - res_default["send_timestamps"][k - 1]
+        assert dt >= (1.0 / 30.0) - 1e-6
+        assert abs(dt - (1.0 / 30.0)) < 1e-6
+
+    # Custom pace_fps=50.0 dengan FakeClock + sleep_fn eksplisit
+    clk_50 = FakeClock(start_time=20.0)
+    sleeps: List[float] = []
+
+    def fake_sleep(dt: float) -> None:
+        sleeps.append(dt)
+        clk_50.advance(dt)
+
+    res_50 = run_board_check(
+        transport=FakeTransport(fake_fpga=FakeFPGA()),
+        packets=packets,
+        expected_ascii=expected,
+        timeout=2.0,
+        perf_counter=clk_50.now,
+        pace_fps=50.0,
+        sleep_fn=fake_sleep,
+    )
+    assert res_50["passed"] is True
+    assert len(res_50["send_timestamps"]) == 5
+    assert len(sleeps) == 4
+    for k in range(1, 5):
+        dt = res_50["send_timestamps"][k] - res_50["send_timestamps"][k - 1]
+        assert dt >= (1.0 / 50.0) - 1e-6
+        assert abs(dt - (1.0 / 50.0)) < 1e-6
+
+
+def test_board_check_wait_each_waits_for_1059_bytes_per_frame():
+    """Memverifikasi wait_each=True menunggu 1.059 byte penuh per frame sebelum paket berikutnya dikirim."""
+    packets = load_golden_packets(clip_path=STREAM_CLIP, frames=3)
+    expected = load_golden_ascii_hex(hex_path=ASCII_HEX, expected_bytes=3 * ASCII_FRAME_LEN)
+
+    class WaitEachTrackingTransport:
+        def __init__(self, expected_bytes: bytes, stall_on_first: bool = False):
+            self.expected_bytes = expected_bytes
+            self.stall_on_first = stall_on_first
+            self.writes: List[bytes] = []
+            self.rx_bytes_before_write: List[int] = []
+            self.rx_bytes_delivered = 0
+            self._pending_chunks: List[bytes] = []
+
+        @property
+        def in_waiting(self) -> int:
+            return sum(len(c) for c in self._pending_chunks)
+
+        def write(self, data: bytes) -> None:
+            idx = len(self.writes)
+            self.rx_bytes_before_write.append(self.rx_bytes_delivered)
+            self.writes.append(data)
+            frame_slice = self.expected_bytes[idx * ASCII_FRAME_LEN : (idx + 1) * ASCII_FRAME_LEN]
+            if self.stall_on_first and idx == 0:
+                self._pending_chunks.append(frame_slice[:500])
+            else:
+                self._pending_chunks.extend([frame_slice[:500], b"", frame_slice[500:]])
+
+        def read(self, size: int = 4096) -> bytes:
+            if not self._pending_chunks:
+                return b""
+            chunk = self._pending_chunks.pop(0)
+            self.rx_bytes_delivered += len(chunk)
+            return chunk
+
+        def close(self) -> None:
+            pass
+
+    clk = FakeClock(start_time=0.0)
+    tr = WaitEachTrackingTransport(expected)
+    res = run_board_check(
+        transport=tr,
+        packets=packets,
+        expected_ascii=expected,
+        timeout=2.0,
+        perf_counter=clk.now,
+        wait_each=True,
+    )
+    assert res["passed"] is True
+    assert res["received_bytes"] == 3 * ASCII_FRAME_LEN
+    assert len(res["send_timestamps"]) == 3
+    assert tr.rx_bytes_before_write == [0, ASCII_FRAME_LEN, 2 * ASCII_FRAME_LEN]
+
+    # Jika frame ke-0 tidak kunjung lengkap sebelum timeout, paket berikutnya tidak boleh dikirim
+    clk_stall = FakeClock(start_time=0.0)
+    tr_stall = WaitEachTrackingTransport(expected, stall_on_first=True)
+    res_stall = run_board_check(
+        transport=tr_stall,
+        packets=packets,
+        expected_ascii=expected,
+        timeout=0.1,
+        perf_counter=clk_stall.now,
+        wait_each=True,
+    )
+    assert res_stall["timed_out"] is True
+    assert res_stall["passed"] is False
+    assert len(tr_stall.writes) == 1

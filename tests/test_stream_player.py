@@ -857,3 +857,81 @@ def test_audio_clock_discipline_synthetic_jitter_and_drift():
     p99_off, lock_err_off = run_discipline_experiment(discipline=False)
     # Jitter +-15 ms langsung lolos ke jam sehingga p99 melebihi 5 ms
     assert p99_off > 5.0, f"Disiplin OFF seharusnya menghasilkan p99 > 5 ms, didapat {p99_off:.2f} ms"
+
+
+# ------------------------------------------------------------------------------
+# Test (t): allow_large_negative_offset, Jadwal Default 0 ms (10 Frame), dan Penolakan False
+# ------------------------------------------------------------------------------
+def test_allow_large_negative_offset_true_no_early_drop():
+    """Memverifikasi allow_large_negative_offset=True dengan av_offset_ms=-80.0 tidak error dan tidak drop frame awal."""
+    packets = [make_dummy_packet(i) for i in range(10)]
+
+    # 1. Uji deterministik dengan FakeClock
+    clock = FakeClock(start_time=10.0)
+    player = StreamPlayer(
+        transport=FakeTransport(),
+        clock=clock,
+        fps=30.0,
+        av_offset_ms=-80.0,
+        allow_large_negative_offset=True,
+    )
+    stats = player.play_packets(packets)
+    player.stop_reader()
+    assert stats["total_frames"] == 10
+    assert stats["sent_frames"] == 10
+    assert stats["dropped_frames"] == 0
+
+    # 2. Uji dengan FakeAudioDevice + AudioClock
+    audio_dev = FakeAudioDevice(sample_rate=44100, latency_sec=0.0, start_sec=10.0, auto_advance=True)
+    audio_dev.start()
+    try:
+        audio_clock = AudioClock(audio_dev, stall_timeout_sec=0.5)
+        player_audio = StreamPlayer(
+            transport=FakeTransport(),
+            clock=audio_clock,
+            fps=30.0,
+            av_offset_ms=-80.0,
+            allow_large_negative_offset=True,
+        )
+        stats_audio = player_audio.play_packets(packets)
+        player_audio.stop_reader()
+        assert stats_audio["total_frames"] == 10
+        assert stats_audio["sent_frames"] == 10
+        assert stats_audio["dropped_frames"] == 0
+    finally:
+        audio_dev.stop()
+        audio_dev.close()
+
+
+def test_default_av_offset_zero_schedule_exact_10_frames():
+    """Memverifikasi default av_offset_ms=0.0 untuk 10 frame mengikuti t0 + n / 30.0 tepat."""
+    t0 = 25.0
+    clock = FakeClock(start_time=t0)
+    player = StreamPlayer(transport=FakeTransport(), clock=clock, fps=30.0)
+    assert player.av_offset_ms == 0.0
+
+    packets = [make_dummy_packet(i) for i in range(10)]
+    stats = player.play_packets(packets)
+    player.stop_reader()
+
+    assert stats["sent_frames"] == 10
+    assert stats["dropped_frames"] == 0
+    assert len(stats["send_timestamps"]) == 10
+    assert len(stats["scheduled_timestamps"]) == 10
+
+    for n in range(10):
+        expected_t = t0 + (n / 30.0)
+        assert abs(stats["scheduled_timestamps"][n] - expected_t) < 1e-9
+        assert abs(stats["send_timestamps"][n] - expected_t) < 1e-9
+
+
+def test_allow_large_negative_offset_false_rejects_minus_67ms():
+    """Memverifikasi allow_large_negative_offset=False dengan -67.0 ms tetap melempar ValueError."""
+    with pytest.raises(ValueError, match="tidak boleh lebih negatif"):
+        StreamPlayer(
+            transport=FakeTransport(),
+            clock=FakeClock(),
+            fps=30.0,
+            av_offset_ms=-67.0,
+            allow_large_negative_offset=False,
+        )
