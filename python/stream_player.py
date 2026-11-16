@@ -371,6 +371,7 @@ class StreamPlayer:
         fps: float = 30.0,
         av_offset_ms: float = 0.0,  # Default 0 ms [DIASUMSIKAN]
         on_terminal_output: Optional[Callable[[bytes], None]] = None,
+        allow_large_negative_offset: bool = False,
     ):
         self.transport = transport
         self.clock = clock if clock is not None else MonotonicClock()
@@ -378,10 +379,11 @@ class StreamPlayer:
         self.av_offset_ms = av_offset_ms
         self.av_offset_sec = av_offset_ms / 1000.0
         self.on_terminal_output = on_terminal_output
+        self.allow_large_negative_offset = allow_large_negative_offset
 
         # Validasi batas negatif av_offset_ms
         min_offset_ms = -(2.0 / self.fps) * 1000.0
-        if self.av_offset_ms < min_offset_ms:
+        if not allow_large_negative_offset and self.av_offset_ms < min_offset_ms:
             raise ValueError(
                 f"--av-offset-ms ({self.av_offset_ms} ms) tidak boleh lebih negatif dari batas "
                 f"minimum {min_offset_ms:.2f} ms pada {self.fps} FPS karena akan membuat frame awal "
@@ -487,6 +489,8 @@ class StreamPlayer:
         t0 = self.clock.now()
         frame_interval = 1.0 / self.fps
         drop_threshold = 2.0 * frame_interval
+        if self.allow_large_negative_offset and self.av_offset_sec < 0.0:
+            drop_threshold = max(drop_threshold, (-self.av_offset_sec) + frame_interval)
 
         self.sent_frames_count = 0
         self.dropped_frames_count = 0
@@ -740,6 +744,7 @@ def main() -> None:
         fps=args.fps,
         av_offset_ms=args.av_offset_ms,
         on_terminal_output=output_handler,
+        allow_large_negative_offset=True,
     )
 
     try:

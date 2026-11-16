@@ -234,16 +234,24 @@ Bagian ini merangkum urutan bring-up perangkat keras lengkap (UART ASCII + modul
   4. Buka terminal serial (`921600` baud, 8N1, tanpa flow control) dan pastikan terminal menampilkan animasi ASCII 90 frame dari klip ROM internal dengan lancar tanpa karakter rusak (`[DIASUMSIKAN]`).
 
 - [ ] **(b) Mode Streaming (`SW0 = 1`) dari `--fake-fpga` lalu Port Serial Nyata (`[DIASUMSIKAN]`):**
-  1. Uji perangkat lunak host di laptop terlebih dahulu secara offline menggunakan `--fake-fpga`:
+  1. Uji jalur loopback host-ke-model secara offline menggunakan `board_check.py --fake-fpga` dan lanjutkan simulasi pemutar `--fake-fpga`:
      ```powershell
+     .\.venv\Scripts\python.exe python/board_check.py --fake-fpga --frames 1 --timeout 2.0
      .\.venv\Scripts\python.exe python/stream_player.py --fake-fpga --clip data/golden/stream_clip.bin --audio data/audio/bad_apple.wav --audio-start-sec 10.0 --audio-hostapi wasapi --audio-discipline on
      ```
-  2. Tutup terminal emulator agar handle port COM bebas, pastikan FTDI Latency Timer telah disetel ke `1 ms`, lalu geser sakelar **`SW0` ke posisi `1` (UP)**.
-  3. Jalankan `stream_player.py` ke port serial nyata (ganti `COMx` dengan port terdeteksi):
+  2. Tutup terminal emulator agar handle port COM bebas, pastikan FTDI Latency Timer telah disetel ke `1 ms`, lalu periksa daftar port & `VID:PID` (`list_ports`):
+     ```powershell
+     .\.venv\Scripts\python.exe python/board_check.py --list-ports
+     ```
+  3. Geser sakelar **`SW0` ke posisi `1` (UP)** dan uji verifikasi loopback UART 921.600 8N1 terhadap `data/golden/ascii.hex` (ganti `COMx` dengan port terdeteksi, atau hilangkan `--port` untuk pilih otomatis FTDI):
+     ```powershell
+     .\.venv\Scripts\python.exe python/board_check.py --port COMx --frames 1 --timeout 2.0
+     ```
+  4. Jika `board_check.py` melaporkan `Status: PASS` (`1.059 B`, `COCOK`), jalankan `stream_player.py` ke port serial nyata:
      ```powershell
      .\.venv\Scripts\python.exe python/stream_player.py --port COMx --baud 921600 --clip data/golden/stream_clip.bin --fps 30 --av-offset-ms 0
      ```
-  4. Pastikan terminal host menampilkan animasi streaming UART RX -> RLE -> ASCII tanpa frame hilang (`[DIASUMSIKAN]`).
+  5. Pastikan terminal host menampilkan animasi streaming UART RX -> RLE -> ASCII tanpa frame hilang (`[DIASUMSIKAN]`).
 
 - [ ] **(c) Pemasangan Modul OLED 7-Pin ke Header Pmod JA (`[DIASUMSIKAN]`):**
   1. **Matikan daya (`SW16 = OFF`) dan cabut kabel USB** sebelum menyambungkan kabel jumper.
@@ -263,15 +271,17 @@ Bagian ini merangkum urutan bring-up perangkat keras lengkap (UART ASCII + modul
   4. Hubungkan kembali USB, nyalakan daya, dan amati tampilan pada layar OLED baik di Mode Clip (`SW0 = 0`) maupun Mode Streaming (`SW0 = 1`).
 
 - [ ] **(d) Prosedur Kalibrasi `--av-offset-ms` (Audio Laptop terhadap Video Terminal) (`[DIASUMSIKAN]`):**
-  1. Jalankan pemutar dengan audio laptop aktif (`WASAPI` + `--audio-discipline on`):
+  1. Periksa daftar perintah sapuan kalibrasi terlebih dahulu tanpa memutar audio dengan `--dry-run`:
      ```powershell
-     .\.venv\Scripts\python.exe python/stream_player.py --port COMx --baud 921600 --clip data/golden/stream_clip.bin --audio data/audio/bad_apple.wav --audio-start-sec 10.0 --audio-hostapi wasapi --audio-discipline on --fps 30 --av-offset-ms 0
+     .\.venv\Scripts\python.exe python/calibrate_av.py --dry-run --port COMx --offsets -80,-40,0,40,80 --frames 600 --audio data/audio/bad_apple.wav --audio-start-sec 10.0
      ```
-  2. Amati ketukan musik/audio dari speaker laptop terhadap transisi visual di terminal (dan di OLED).
-  3. Sesuaikan nilai `--av-offset-ms` secara bertahap (misalnya langkah `10` atau `20` ms; batas bawah `> -66,67` ms pada 30 FPS):
-     - Jika video terlihat **terlambat** di belakang audio, gunakan nilai `--av-offset-ms` lebih **negatif** (contoh `-15`, `-30`).
-     - Jika video terlihat **terlalu cepat** mendahului audio, gunakan nilai `--av-offset-ms` **positif** (contoh `+15`, `+30`).
-  4. Catat nilai `--av-offset-ms` optimal yang terasa paling selaras menurut penilaian pengamatan visual dan auditori langsung (`[DIASUMSIKAN]`).
+     *(Catatan: `data/golden/stream_clip.bin` berisi 90 frame [3 detik]; untuk menguji tepat 600 frame [20 detik] gunakan `--clip data/stream_full.bin --start-frame 300` bila `data/stream_full.bin` sudah dibuat lewat `python/make_full_stream.py` `[DIASUMSIKAN]`.)*
+  2. Jalankan kalibrasi bertahap memakai `python/calibrate_av.py` (secara internal memanggil `stream_player.py` dengan `--audio-hostapi wasapi --audio-discipline on`):
+     ```powershell
+     .\.venv\Scripts\python.exe python/calibrate_av.py --port COMx --offsets -80,-40,0,40,80 --frames 600 --audio data/audio/bad_apple.wav --audio-start-sec 10.0
+     ```
+  3. Setelah tiap langkah selesai, amati ketukan musik/audio dari speaker laptop terhadap transisi visual di terminal/OLED dan jawab prompt **`sinkron? (y/n)`**.
+  4. Catat rentang offset sinkron dan nilai tengah yang disarankan oleh `calibrate_av.py`, lalu gunakan nilai `--av-offset-ms` optimal tersebut pada `stream_player.py` untuk pemutaran penuh (`[DIASUMSIKAN]`).
 
 ### 9.2 Gejala dan Tindakan Diagnostik OLED
 
