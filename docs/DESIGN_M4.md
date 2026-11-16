@@ -713,7 +713,7 @@ Sinyal PWM audio dialokasikan pada header PMOD JB [DIASUMSIKAN]:
 Berdasarkan berkas batasan implementasi aktif `constraints/basys3.xdc`:
 - `clk` menggunakan pin `W5` [DIVERIFIKASI: baris 6].
 - `btnC` menggunakan pin `U18` [DIVERIFIKASI: baris 11].
-- `sw[0]` menggunakan pin `V17` [DIVERIFIKASI: baris 15].
+- `sw[0]` menggunakan pin `V17` [DIVERIFIKASI: `constraints/basys3.xdc` baris 14-15; polaritas mode di `hdl/top.vhd` baris 151-152, 315-329, 342, 362, 497: `SW0 = 0` (`sw(0)='0'`, `sw_sync='0'`) = Mode Klip BRAM M1; `SW0 = 1` (`sw(0)='1'`, `sw_sync='1'`) = Mode Streaming UART RX M2].
 - `RsRx` menggunakan pin `B18` [DIVERIFIKASI: baris 19].
 - `RsTx` menggunakan pin `A18` [DIVERIFIKASI: baris 22].
 - `led[0..7]` menggunakan pin `U16`, `E19`, `U19`, `V19`, `W18`, `U15`, `U14`, `V14` [DIVERIFIKASI: baris 26-48].
