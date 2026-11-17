@@ -45,6 +45,13 @@ transcript
 *.prm
 clockInfo.txt
 vivado/funcsim/
+vivado/project_gui/
+*.xpr
+*.sim/
+*.runs/
+*.cache/
+*.hw/
+*.ip_user_files/
 vivado/build_m1/*.bit
 vivado/build_m1/*.bin
 vivado/experiments/*.bin

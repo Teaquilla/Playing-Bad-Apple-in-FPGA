@@ -8,22 +8,11 @@ param()
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-# Pastikan environment Vivado 2026.1 termuat
-$settingsBat = "D:\Vivado\2026.1\Vivado\settings64.bat"
+# Pastikan environment Vivado termuat (otomatis mendeteksi instalasi Vivado atau lewat $env:VIVADO_SETTINGS)
 if (-not (Get-Command xvhdl -ErrorAction SilentlyContinue)) {
-    if (Test-Path $settingsBat) {
-        $tempFile = [System.IO.Path]::GetTempFileName()
-        cmd.exe /c "call `"$settingsBat`" >nul 2>&1 && set > `"$tempFile`""
-        if (Test-Path $tempFile) {
-            Get-Content $tempFile | ForEach-Object {
-                if ($_ -match '^([^=]+)=(.*)$') {
-                    [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2], "Process")
-                }
-            }
-            Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-        }
-    } else {
-        Write-Error "Vivado settings64.bat tidak ditemukan di $settingsBat"
+    . (Join-Path $PSScriptRoot "env.ps1")
+    if (-not (Get-Command xvhdl -ErrorAction SilentlyContinue)) {
+        Write-Error "Perintah Vivado (xvhdl) tidak tersedia. Set `$env:VIVADO_SETTINGS atau tambahkan Vivado\bin ke PATH."
         exit 1
     }
 }
