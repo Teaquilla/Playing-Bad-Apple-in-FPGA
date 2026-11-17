@@ -308,7 +308,8 @@ def test_calibrate_av_default_cmd_and_alignment():
 
     cmd = build_stream_player_cmd(0.0)
     joined = " ".join(cmd)
-    assert "--clip data/stream_full.bin" in joined
+    assert "--file data/stream_full.bin" in joined
+    assert "--clip" not in joined
     assert "--start-frame 300" in joined
     assert "--audio-start-sec" not in joined
     assert "--max-frames 600" in joined
@@ -630,3 +631,28 @@ def test_board_check_90_frames_pace_30_timeout_from_last_packet():
     assert res_fail["passed"] is False
     assert len(res_fail["send_timestamps"]) == 90
     assert res_fail["elapsed_sec"] >= (89.0 / 30.0) + 2.0 - 1e-6
+
+
+def test_calibrate_av_file_vs_clip_option_selection():
+    """Memverifikasi calibrate_av memilih --file untuk data/stream_full.bin dan --clip untuk stream_clip.bin."""
+    cmd_full = build_stream_player_cmd(0.0)
+    assert "--file" in cmd_full
+    assert cmd_full[cmd_full.index("--file") + 1] == "data/stream_full.bin"
+    assert "--clip" not in cmd_full
+    assert "--start-frame" in cmd_full
+    assert cmd_full[cmd_full.index("--start-frame") + 1] == "300"
+    assert "--audio-start-sec" not in cmd_full
+
+    cmd_clip = build_stream_player_cmd(
+        0.0,
+        clip="data/golden/stream_clip.bin",
+        start_frame=0,
+        audio_start_sec=10.0,
+        frames=90,
+    )
+    assert "--clip" in cmd_clip
+    assert cmd_clip[cmd_clip.index("--clip") + 1] == "data/golden/stream_clip.bin"
+    assert "--file" not in cmd_clip
+    assert "--audio-start-sec" in cmd_clip
+    assert cmd_clip[cmd_clip.index("--audio-start-sec") + 1] == "10.0"
+    assert "--start-frame" not in cmd_clip

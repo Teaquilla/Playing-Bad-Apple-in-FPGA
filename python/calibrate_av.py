@@ -4,8 +4,8 @@ Pembantu kalibrasi interaktif nilai --av-offset-ms pada python/stream_player.py.
 Fitur:
 1. Menjalankan stream_player.py berurutan untuk daftar --av-offset-ms
    (default: -80,-40,0,40,80), dengan --audio-hostapi wasapi --audio-discipline on
-   serta --clip data/stream_full.bin --start-frame 300 --max-frames 600 per langkah
-   (atau --audio-start-sec saja untuk klip 90 frame tanpa --start-frame).
+   serta --file data/stream_full.bin --start-frame 300 --max-frames 600 per langkah
+   (atau --clip data/golden/stream_clip.bin --audio-start-sec saja untuk klip 90 frame tanpa --start-frame).
 2. Memvalidasi konsistensi start_frame == audio_start_sec * fps dan kecukupan jumlah paket clip.
 3. Menanyakan pengguna 'sinkron? (y/n)' setelah tiap langkah.
 4. Mencetak rentang offset yang dinilai sinkron dan menyarankan nilai tengahnya.
@@ -107,6 +107,7 @@ def build_stream_player_cmd(
     if os.path.exists(clip):
         validate_clip_frame_count(clip, start_frame, frames)
 
+    stream_flag = "--clip" if is_short_clip else "--file"
     cmd = [
         python_exe,
         "python/stream_player.py",
@@ -114,7 +115,7 @@ def build_stream_player_cmd(
         port,
         "--baud",
         str(baud),
-        "--clip",
+        stream_flag,
         clip,
         "--audio",
         audio,
@@ -268,7 +269,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument("--fps", type=float, default=30.0, help="Laju frame per detik (default: 30.0).")
     parser.add_argument(
+        "--file",
         "--clip",
+        dest="clip",
         type=str,
         default=DEFAULT_CLIP,
         help=f"Berkas aliran paket video biner (default: {DEFAULT_CLIP}).",
