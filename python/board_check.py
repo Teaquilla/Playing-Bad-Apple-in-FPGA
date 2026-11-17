@@ -230,23 +230,18 @@ def run_board_check(
         received.extend(chunk)
 
     t_send = perf_counter()
+    t_last_send = t_send
     for k, pkt in enumerate(packets):
         if (not wait_each) and pace_fps and pace_fps > 0:
             t_target = t_send + (k / pace_fps)
             now = perf_counter()
             wait_dt = t_target - now
             if wait_dt > 0:
-                remaining_timeout = (t_send + timeout) - now
-                if remaining_timeout <= 0:
-                    timed_out_flag = True
-                    break
-                if wait_dt > remaining_timeout:
-                    _sleep(remaining_timeout)
-                    timed_out_flag = True
-                    break
                 _sleep(wait_dt)
 
-        send_timestamps.append(perf_counter())
+        t_pkt_send = perf_counter()
+        t_last_send = t_pkt_send
+        send_timestamps.append(t_pkt_send)
         transport.write(pkt)
 
         if wait_each:
@@ -254,7 +249,7 @@ def run_board_check(
             empty_reads = 0
             while len(received) < target_rx:
                 now = perf_counter()
-                if now - t_send >= timeout:
+                if now - t_pkt_send >= timeout:
                     timed_out_flag = True
                     break
                 read_len = max(4096, expected_bytes - len(received))
@@ -264,7 +259,7 @@ def run_board_check(
                     _record_chunk(chunk)
                 else:
                     empty_reads += 1
-                    if perf_counter() - t_send >= timeout or empty_reads >= 10000:
+                    if perf_counter() - t_pkt_send >= timeout or empty_reads >= 10000:
                         timed_out_flag = True
                         break
                     _sleep(0.002)
@@ -282,7 +277,7 @@ def run_board_check(
             break
 
         now = perf_counter()
-        if now - t_send >= timeout and len(received) < expected_bytes:
+        if now - t_last_send >= timeout and len(received) < expected_bytes:
             timed_out_flag = True
             break
 
@@ -293,16 +288,18 @@ def run_board_check(
             _record_chunk(chunk)
         else:
             empty_reads += 1
-            if perf_counter() - t_send >= timeout or empty_reads >= 10000:
+            if perf_counter() - t_last_send >= timeout or empty_reads >= 10000:
                 timed_out_flag = True
                 break
             _sleep(0.002)
 
-    elapsed_sec = perf_counter() - t_send
+    t_done = perf_counter()
+    elapsed_sec = t_done - t_send
+    post_last_send_sec = t_done - t_last_send
     received_bytes = bytes(received)
 
     count_ok = len(received_bytes) == expected_bytes
-    timed_out = bool(timed_out_flag or (elapsed_sec > timeout))
+    timed_out = bool(timed_out_flag or (post_last_send_sec > timeout))
     common_len = min(len(received_bytes), expected_bytes)
     byte_exact, first_mismatch_index, mismatch_detail = compare_ascii_bytes(
         received_bytes[:common_len], expected_ascii[:common_len]
@@ -355,7 +352,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--timeout",
         type=float,
         default=2.0,
-        help="Batas waktu tunggu penerimaan seluruh byte ASCII dalam detik (default: 2.0).",
+        help="Batas waktu tunggu penerimaan byte ASCII setelah paket dikirim dalam detik (default: 2.0).",
     )
     parser.add_argument(
         "--pace-fps",

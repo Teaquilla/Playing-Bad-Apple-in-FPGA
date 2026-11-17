@@ -587,3 +587,46 @@ def test_board_check_wait_each_waits_for_1059_bytes_per_frame():
     assert res_stall["timed_out"] is True
     assert res_stall["passed"] is False
     assert len(tr_stall.writes) == 1
+
+
+def test_board_check_90_frames_pace_30_timeout_from_last_packet():
+    """Dengan jam palsu: 90 frame @ pace 30 FPS (~3,0 s) & timeout 2,0 s wajib lulus,
+    dan timeout tetap terdeteksi bila tidak ada byte setelah paket terakhir dikirim.
+    """
+    packets = load_golden_packets(clip_path=STREAM_CLIP, frames=90)
+    expected = load_golden_ascii_hex(hex_path=ASCII_HEX, expected_bytes=90 * ASCII_FRAME_LEN)
+
+    # Skenario 1: seluruh 95.310 byte diterima segera setelah paket ke-90 dikirim -> PASS
+    clk_pass = FakeClock(start_time=10.0)
+    res_pass = run_board_check(
+        transport=FakeTransport(fake_fpga=FakeFPGA()),
+        packets=packets,
+        expected_ascii=expected,
+        timeout=2.0,
+        perf_counter=clk_pass.now,
+        pace_fps=30.0,
+    )
+    assert res_pass["passed"] is True
+    assert res_pass["timed_out"] is False
+    assert res_pass["count_ok"] is True
+    assert res_pass["byte_exact"] is True
+    assert res_pass["received_bytes"] == 90 * ASCII_FRAME_LEN
+    assert len(res_pass["send_timestamps"]) == 90
+    assert res_pass["elapsed_sec"] == pytest.approx(89.0 / 30.0, abs=1e-6)
+
+    # Skenario 2: 0 byte tiba setelah paket terakhir dikirim -> timeout terdeteksi 2.0 s setelah paket ke-90
+    clk_fail = FakeClock(start_time=10.0)
+    silent_transport = ScriptedFakeSerial(rx_chunks=[])
+    res_fail = run_board_check(
+        transport=silent_transport,
+        packets=packets,
+        expected_ascii=expected,
+        timeout=2.0,
+        perf_counter=clk_fail.now,
+        pace_fps=30.0,
+    )
+    assert res_fail["received_bytes"] == 0
+    assert res_fail["timed_out"] is True
+    assert res_fail["passed"] is False
+    assert len(res_fail["send_timestamps"]) == 90
+    assert res_fail["elapsed_sec"] >= (89.0 / 30.0) + 2.0 - 1e-6
