@@ -300,7 +300,7 @@ def test_calibrate_av_dry_run_and_answer_parsing(capsys):
 
 
 def test_calibrate_av_default_cmd_and_alignment():
-    """Memverifikasi default build_stream_player_cmd (clip full, start 300, audio 10.0s, 600 frame)."""
+    """Memverifikasi default build_stream_player_cmd (stream full, start 300 saja tanpa duplikasi --audio-start-sec, 600 frame)."""
     assert DEFAULT_CLIP == "data/stream_full.bin"
     assert DEFAULT_START_FRAME == 300
     assert DEFAULT_AUDIO_START_SEC == 10.0
@@ -310,9 +310,123 @@ def test_calibrate_av_default_cmd_and_alignment():
     joined = " ".join(cmd)
     assert "--clip data/stream_full.bin" in joined
     assert "--start-frame 300" in joined
-    assert "--audio-start-sec 10.0" in joined
+    assert "--audio-start-sec" not in joined
     assert "--max-frames 600" in joined
     assert DEFAULT_START_FRAME == pytest.approx(DEFAULT_AUDIO_START_SEC * 30.0)
+
+
+def test_audio_start_sample_fake_backend_three_cases(monkeypatch):
+    """Merekam sampel awal audio dengan --audio-backend fake untuk:
+    (a) --start-frame 300 saja,
+    (b) --audio-start-sec 10.0 saja pada klip 90 frame,
+    (c) kombinasi yang dibangun build_stream_player_cmd bawaan calibrate_av (harapan 441.000, bukan 882.000).
+    """
+    import python.stream_player as sp
+
+    wav_path = REPO_ROOT / "data" / "audio" / "bad_apple.wav"
+    if not wav_path.exists():
+        pytest.skip("data/audio/bad_apple.wav tidak tersedia")
+
+    recorded = []
+    orig_fake_audio = sp.FakeAudioDevice
+    orig_fake_fpga = sp.FakeFPGA
+
+    class RecordingFakeAudioDevice(orig_fake_audio):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            recorded.append(
+                {
+                    "start_sec": self.start_sec(),
+                    "start_sample": self.start_sample(),
+                    "sample_rate": self.sample_rate(),
+                }
+            )
+
+    fpgas = []
+
+    class RecordingFakeFPGA(orig_fake_fpga):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            fpgas.append(self)
+
+    monkeypatch.setattr(sp, "FakeAudioDevice", RecordingFakeAudioDevice)
+    monkeypatch.setattr(sp, "FakeFPGA", RecordingFakeFPGA)
+
+    # (a) --start-frame 300 saja pada stream_full.bin
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "python/stream_player.py",
+            "--fake-fpga",
+            "--no-display",
+            "--file",
+            "data/stream_full.bin",
+            "--audio",
+            "data/audio/bad_apple.wav",
+            "--audio-backend",
+            "fake",
+            "--start-frame",
+            "300",
+            "--max-frames",
+            "2",
+        ],
+    )
+    sp.main()
+    assert len(recorded) == 1
+    assert recorded[-1]["sample_rate"] == 44100
+    assert recorded[-1]["start_sec"] == pytest.approx(10.0)
+    assert recorded[-1]["start_sample"] == 441000
+    assert fpgas[-1].received_fids == [300, 301]
+
+    # (b) --audio-start-sec 10.0 saja pada klip 90 frame
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "python/stream_player.py",
+            "--fake-fpga",
+            "--no-display",
+            "--clip",
+            "data/golden/stream_clip.bin",
+            "--audio",
+            "data/audio/bad_apple.wav",
+            "--audio-backend",
+            "fake",
+            "--audio-start-sec",
+            "10.0",
+            "--max-frames",
+            "2",
+        ],
+    )
+    sp.main()
+    assert len(recorded) == 2
+    assert recorded[-1]["sample_rate"] == 44100
+    assert recorded[-1]["start_sec"] == pytest.approx(10.0)
+    assert recorded[-1]["start_sample"] == 441000
+
+    # (c) Kombinasi yang dibangun build_stream_player_cmd (calibrate_av bawaan)
+    default_cmd = build_stream_player_cmd(0.0)
+    assert "--start-frame" in default_cmd
+    assert "--audio-start-sec" not in default_cmd, (
+        "calibrate_av bawaan tidak boleh meneruskan --audio-start-sec bersamaan dengan --start-frame (risiko hitung ganda)"
+    )
+
+    # Evaluasi aditif: bila kedua opsi diteruskan bersamaan dan ditafsirkan aditif, total akan menjadi 882.000
+    sf_val = int(default_cmd[default_cmd.index("--start-frame") + 1]) if "--start-frame" in default_cmd else 0
+    as_val = float(default_cmd[default_cmd.index("--audio-start-sec") + 1]) if "--audio-start-sec" in default_cmd else 0.0
+    fps_val = float(default_cmd[default_cmd.index("--fps") + 1])
+    additive_samples = int(round((as_val + (sf_val / fps_val)) * 44100))
+    assert additive_samples == 441000, f"Risiko hitung ganda aditif: didapat {additive_samples} != 441000"
+
+    run_cmd = build_stream_player_cmd(0.0, frames=2, fake_fpga=True, no_display=True)
+    monkeypatch.setattr(sys, "argv", run_cmd[1:] + ["--audio-backend", "fake"])
+    sp.main()
+    assert len(recorded) == 3
+    assert recorded[-1]["sample_rate"] == 44100
+    assert recorded[-1]["start_sec"] == pytest.approx(10.0)
+    assert recorded[-1]["start_sample"] == 441000
+    assert fpgas[-1].received_fids == [300, 301]
 
 
 def test_calibrate_av_start_frame_audio_mismatch_raises():

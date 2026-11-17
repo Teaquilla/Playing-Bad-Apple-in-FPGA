@@ -4,7 +4,8 @@ Pembantu kalibrasi interaktif nilai --av-offset-ms pada python/stream_player.py.
 Fitur:
 1. Menjalankan stream_player.py berurutan untuk daftar --av-offset-ms
    (default: -80,-40,0,40,80), dengan --audio-hostapi wasapi --audio-discipline on
-   serta --clip data/stream_full.bin --start-frame 300 --audio-start-sec 10.0 --max-frames 600 per langkah.
+   serta --clip data/stream_full.bin --start-frame 300 --max-frames 600 per langkah
+   (atau --audio-start-sec saja untuk klip 90 frame tanpa --start-frame).
 2. Memvalidasi konsistensi start_frame == audio_start_sec * fps dan kecukupan jumlah paket clip.
 3. Menanyakan pengguna 'sinkron? (y/n)' setelah tiap langkah.
 4. Mencetak rentang offset yang dinilai sinkron dan menyarankan nilai tengahnya.
@@ -87,7 +88,7 @@ def build_stream_player_cmd(
     fps: float = 30.0,
     clip: str = DEFAULT_CLIP,
     audio: str = "data/audio/bad_apple.wav",
-    audio_start_sec: float = DEFAULT_AUDIO_START_SEC,
+    audio_start_sec: Optional[float] = DEFAULT_AUDIO_START_SEC,
     fake_fpga: bool = False,
     no_display: bool = False,
     python_exe: str = sys.executable,
@@ -95,12 +96,14 @@ def build_stream_player_cmd(
     """Menyusun daftar argumen CLI untuk memanggil python/stream_player.py."""
     if fps <= 0:
         raise ValueError(f"--fps harus > 0, didapat: {fps}")
-    expected_start_frame = audio_start_sec * fps
-    if abs(start_frame - expected_start_frame) > 1e-3:
-        raise ValueError(
-            f"--start-frame ({start_frame}) tidak konsisten dengan "
-            f"--audio-start-sec * --fps ({audio_start_sec} * {fps} = {expected_start_frame:.3f})."
-        )
+    is_short_clip = Path(clip).name == "stream_clip.bin"
+    if audio_start_sec is not None and (start_frame > 0 or not is_short_clip):
+        expected_start_frame = audio_start_sec * fps
+        if abs(start_frame - expected_start_frame) > 1e-3:
+            raise ValueError(
+                f"--start-frame ({start_frame}) tidak konsisten dengan "
+                f"--audio-start-sec * --fps ({audio_start_sec} * {fps} = {expected_start_frame:.3f})."
+            )
     if os.path.exists(clip):
         validate_clip_frame_count(clip, start_frame, frames)
 
@@ -115,8 +118,6 @@ def build_stream_player_cmd(
         clip,
         "--audio",
         audio,
-        "--audio-start-sec",
-        str(audio_start_sec),
         "--audio-hostapi",
         "wasapi",
         "--audio-discipline",
@@ -125,11 +126,15 @@ def build_stream_player_cmd(
         str(fps),
         "--av-offset-ms",
         format_offset_arg(offset_ms),
-        "--start-frame",
-        str(start_frame),
         "--max-frames",
         str(frames),
     ]
+    if start_frame > 0:
+        cmd.extend(["--start-frame", str(start_frame)])
+    elif audio_start_sec is not None and audio_start_sec > 0:
+        cmd.extend(["--audio-start-sec", str(audio_start_sec)])
+    else:
+        cmd.extend(["--start-frame", "0"])
     if fake_fpga:
         cmd.append("--fake-fpga")
     if no_display:
