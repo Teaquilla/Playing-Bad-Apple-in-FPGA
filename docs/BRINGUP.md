@@ -229,9 +229,9 @@ Bagian ini merangkum urutan bring-up perangkat keras lengkap (UART ASCII + modul
 
 - [ ] **(a) Mode Clip (`SW0 = 0`) Tanpa OLED (`[DIASUMSIKAN]`):**
   1. Pastikan sakelar daya `SW16` pada posisi `OFF` dan modul OLED **belum** dipasang.
-  2. Program bitstream dari `build_variants_4u` (`build_variants_4u/baseline/top_baseline_compressed.bit` atau `A1_C8\top_A1_C8_compressed.bit`) ke Basys 3.
+  2. Siapkan folder rilis dengan menjalankan `powershell -ExecutionPolicy Bypass -File vivado/collect_release.ps1` (menyalin `top_baseline_compressed.bit` dan `.bin` dari `build_variants_4u_*` terbaru ke `release\m4\` serta menulis dan memverifikasi `release\m4\SHA256SUMS.txt`), lalu program bitstream `release\m4\top_baseline_compressed.bit` ke Basys 3.
      > [!CAUTION]
-     > Gunakan bitstream dari `build_variants_4u` (`baseline` atau `A1_C8`); bitstream di `scratch\build_variants` hasil 4t **RUSAK** (`2.657` LUT; ROM klip kehilangan sebagian) dan **jangan diprogram**.
+     > Gunakan bitstream rilis `release\m4\top_baseline_compressed.bit` yang dikumpulkan melalui `vivado/collect_release.ps1` (dari `build_variants_4u`); jalur bitstream rusak `scratch\build_variants` hasil 4t (`2.657` LUT; ROM klip kehilangan sebagian) **tidak boleh dipakai / jangan diprogram**.
   3. Setel sakelar **`SW0` (pin `V17`) ke posisi `0` (DOWN)** (`SW0 = 0` = Mode Clip / Klip BRAM ROM `M1` sesuai `hdl/top.vhd`) dan nyalakan `SW16 = ON`.
   4. Buka terminal serial (`921600` baud, 8N1, tanpa flow control) dan pastikan terminal menampilkan animasi ASCII 90 frame dari klip ROM internal dengan lancar tanpa karakter rusak (`[DIASUMSIKAN]`).
 
@@ -279,12 +279,12 @@ Bagian ini merangkum urutan bring-up perangkat keras lengkap (UART ASCII + modul
 - [ ] **(d) Prosedur Kalibrasi `--av-offset-ms` (Audio Laptop terhadap Video Terminal) (`[DIASUMSIKAN]`):**
   1. Periksa daftar perintah sapuan kalibrasi terlebih dahulu tanpa memutar audio dengan `--dry-run`:
      ```powershell
-     .\.venv\Scripts\python.exe python/calibrate_av.py --dry-run --port COMx --offsets -80,-40,0,40,80 --clip data/stream_full.bin --start-frame 300 --audio-start-sec 10.0 --frames 600 --audio data/audio/bad_apple.wav
+     .\.venv\Scripts\python.exe python/calibrate_av.py --dry-run --port COMx --offsets -80,-40,0,40,80 --file data/stream_full.bin --start-frame 300 --frames 600 --audio data/audio/bad_apple.wav
      ```
-     *(Catatan: pengaturan `--clip data/stream_full.bin --start-frame 300 --audio-start-sec 10.0 --frames 600` [20 detik dari detik ke-10 lagu, frame 300..899] kini juga menjadi nilai default `calibrate_av.py`. Bila `data/stream_full.bin` belum tersedia, buat terlebih dahulu dengan `python/make_full_stream.py --frames 1000 --out data/stream_full.bin`; `data/golden/stream_clip.bin` hanya berisi 90 frame [3 detik] sehingga tidak cukup untuk 600 frame `[DIASUMSIKAN]`.)*
+     *(Catatan: pengaturan `--file data/stream_full.bin --start-frame 300 --frames 600` [20 detik dari detik ke-10 lagu, frame 300..899; `calibrate_av.py` hanya meneruskan `--start-frame 300` tanpa `--audio-start-sec` agar `stream_player.py` otomatis menyelaraskan audio ke 441.000 sampel tanpa risiko hitung ganda] kini juga menjadi nilai default `calibrate_av.py`. Bila `data/stream_full.bin` belum tersedia, buat terlebih dahulu dengan `python/make_full_stream.py --frames 1000 --out data/stream_full.bin`; `data/golden/stream_clip.bin` hanya berisi 90 frame [3 detik] sehingga tidak cukup untuk 600 frame `[DIASUMSIKAN]`.)*
   2. Jalankan kalibrasi bertahap memakai `python/calibrate_av.py` (secara internal memanggil `stream_player.py` dengan `--audio-hostapi wasapi --audio-discipline on`):
      ```powershell
-     .\.venv\Scripts\python.exe python/calibrate_av.py --port COMx --offsets -80,-40,0,40,80 --clip data/stream_full.bin --start-frame 300 --audio-start-sec 10.0 --frames 600 --audio data/audio/bad_apple.wav
+     .\.venv\Scripts\python.exe python/calibrate_av.py --port COMx --offsets -80,-40,0,40,80 --file data/stream_full.bin --start-frame 300 --frames 600 --audio data/audio/bad_apple.wav
      ```
   3. Setelah tiap langkah selesai, amati ketukan musik/audio dari speaker laptop terhadap transisi visual di terminal/OLED dan jawab prompt **`sinkron? (y/n)`**.
   4. Catat rentang offset sinkron dan nilai tengah yang disarankan oleh `calibrate_av.py`, lalu gunakan nilai `--av-offset-ms` optimal tersebut pada `stream_player.py` untuk pemutaran penuh (`[DIASUMSIKAN]`).
