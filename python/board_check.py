@@ -24,8 +24,10 @@ Fitur:
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import os
 import re
+import statistics
 import sys
 import time
 from pathlib import Path
@@ -40,6 +42,7 @@ from python.stream_player import FakeFPGA, FakeTransport, split_stream_into_pack
 
 
 DEFAULT_BAUD = 921600
+DEFAULT_RX_BUFFER_BYTES = 262144
 DEFAULT_CLIP = "data/golden/stream_clip.bin"
 DEFAULT_GOLDEN_HEX = "data/golden/ascii.hex"
 _VID_PID_RE = re.compile(r"VID:PID=([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})")
@@ -162,6 +165,91 @@ def compare_ascii_bytes(received: bytes, expected: bytes) -> Tuple[bool, Optiona
     return True, None, "Cocok 100% byte-exact"
 
 
+def _configure_rx_buffer(transport: Any, rx_size: int = DEFAULT_RX_BUFFER_BYTES) -> bool:
+    """Memperbesar buffer RX transport bila mendukung set_buffer_size (mis. pyserial Win32)."""
+    set_buf = getattr(transport, "set_buffer_size", None)
+    if not callable(set_buf):
+        return False
+    try:
+        set_buf(rx_size=rx_size)
+        return True
+    except TypeError:
+        try:
+            set_buf(rx_size)
+            return True
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
+class FakeSerial:
+    """Port serial tiruan dengan buffer RX terbatas (membuang byte tertua saat penuh)
+    dan jeda penerimaan ASCII per paket (default 11,5 ms).
+    """
+
+    def __init__(
+        self,
+        perf_counter: Callable[[], float] = time.perf_counter,
+        max_rx_bytes: int = 4096,
+        frame_delay_sec: float = 0.0115,
+        respect_set_buffer_size: bool = False,
+    ):
+        if max_rx_bytes <= 0:
+            raise ValueError(f"max_rx_bytes harus > 0, didapat: {max_rx_bytes}")
+        self._perf_counter = perf_counter
+        self.max_rx_bytes = int(max_rx_bytes)
+        self.frame_delay_sec = max(0.0, float(frame_delay_sec))
+        self.respect_set_buffer_size = respect_set_buffer_size
+        self._fpga = FakeFPGA()
+        self._pending: deque[Tuple[float, bytes]] = deque()
+        self._rx_buf = bytearray()
+        self.dropped_rx_bytes: int = 0
+        self.set_buffer_size_calls: List[int] = []
+        self.closed = False
+
+    def set_buffer_size(self, rx_size: int = 4096, tx_size: Optional[int] = None) -> None:
+        self.set_buffer_size_calls.append(int(rx_size))
+        if self.respect_set_buffer_size and rx_size > 0:
+            self.max_rx_bytes = int(rx_size)
+
+    def _flush_due(self) -> None:
+        now = self._perf_counter()
+        while self._pending and self._pending[0][0] <= now + 1e-9:
+            _, payload = self._pending.popleft()
+            self._rx_buf.extend(payload)
+            if len(self._rx_buf) > self.max_rx_bytes:
+                overflow = len(self._rx_buf) - self.max_rx_bytes
+                del self._rx_buf[:overflow]
+                self.dropped_rx_bytes += overflow
+
+    @property
+    def in_waiting(self) -> int:
+        self._flush_due()
+        return len(self._rx_buf)
+
+    def write(self, data: bytes) -> int:
+        if self.closed:
+            raise RuntimeError("FakeSerial sudah ditutup")
+        self._fpga.receive_bytes(data)
+        produced = self._fpga.read_ascii(1024 * 1024)
+        if produced:
+            ready_at = self._perf_counter() + self.frame_delay_sec
+            self._pending.append((ready_at, produced))
+        return len(data)
+
+    def read(self, size: int = 4096) -> bytes:
+        self._flush_due()
+        if size <= 0 or not self._rx_buf:
+            return b""
+        chunk = bytes(self._rx_buf[:size])
+        del self._rx_buf[:size]
+        return chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+
 def open_serial_connection(port: str, baud: int = DEFAULT_BAUD, timeout: float = 2.0):
     """Membuka port serial pyserial 8N1 pada laju baud yang ditentukan."""
     import serial
@@ -175,6 +263,7 @@ def open_serial_connection(port: str, baud: int = DEFAULT_BAUD, timeout: float =
         timeout=min(0.05, max(0.005, float(timeout))),
         write_timeout=1.0,
     )
+    _configure_rx_buffer(ser, rx_size=DEFAULT_RX_BUFFER_BYTES)
     if hasattr(ser, "reset_input_buffer"):
         ser.reset_input_buffer()
     if hasattr(ser, "reset_output_buffer"):
@@ -192,7 +281,7 @@ def run_board_check(
     wait_each: bool = False,
     sleep_fn: Optional[Callable[[float], None]] = None,
 ) -> Dict[str, Any]:
-    """Mengirim paket video dengan pacing/wait-each, membaca balik ASCII, dan memverifikasi hasil.
+    """Mengirim paket video dengan pacing/wait-each, membaca balik ASCII secara bersamaan, dan memverifikasi hasil.
 
     Catatan hardware: FPGA membuang paket yang tiba sebelum frame ASCII sebelumnya selesai
     dikirim (~11,5 ms; delayed swap di frame_buffer), sedangkan FakeFPGA tidak memodelkan drop ini.
@@ -202,12 +291,18 @@ def run_board_check(
     if pace_fps is not None and pace_fps < 0:
         raise ValueError(f"--pace-fps harus >= 0, didapat: {pace_fps}")
 
+    _configure_rx_buffer(transport, rx_size=DEFAULT_RX_BUFFER_BYTES)
+
     expected_bytes = len(expected_ascii)
+    num_packets = len(packets)
     received = bytearray()
     send_timestamps: List[float] = []
-    first_byte_sec: Optional[float] = None
-    last_byte_sec: Optional[float] = None
+    frame_first_byte_sec: List[Optional[float]] = [None] * num_packets
+    frame_latencies_sec: List[Optional[float]] = [None] * num_packets
+    raw_first_byte_sec: Optional[float] = None
+    raw_last_byte_sec: Optional[float] = None
     timed_out_flag = False
+    poll_step_sec = 0.0005
 
     def _sleep(wait_dt: float) -> None:
         if wait_dt <= 0:
@@ -222,22 +317,60 @@ def run_board_check(
             time.sleep(wait_dt)
 
     def _record_chunk(chunk: bytes) -> None:
-        nonlocal first_byte_sec, last_byte_sec
-        now_rx = perf_counter() - t_send
-        if first_byte_sec is None:
-            first_byte_sec = now_rx
-        last_byte_sec = now_rx
+        nonlocal raw_first_byte_sec, raw_last_byte_sec
+        if not chunk:
+            return
+        now_abs = perf_counter()
+        now_rel = now_abs - t_send
+        if raw_first_byte_sec is None:
+            raw_first_byte_sec = now_rel
+        raw_last_byte_sec = now_rel
+
+        prev_len = len(received)
         received.extend(chunk)
+        new_len = len(received)
+
+        if num_packets > 0:
+            first_frame = prev_len // ASCII_FRAME_LEN
+            last_frame = min(num_packets - 1, (new_len - 1) // ASCII_FRAME_LEN)
+            for m in range(first_frame, last_frame + 1):
+                byte_offset = m * ASCII_FRAME_LEN
+                if prev_len <= byte_offset < new_len and frame_first_byte_sec[m] is None:
+                    frame_first_byte_sec[m] = now_rel
+                    if m < len(send_timestamps):
+                        frame_latencies_sec[m] = now_abs - send_timestamps[m]
+
+    def _drain_available() -> None:
+        if hasattr(transport, "in_waiting"):
+            while getattr(transport, "in_waiting", 0) > 0:
+                to_read = max(4096, int(getattr(transport, "in_waiting", 0)))
+                chunk = transport.read(to_read)
+                if not chunk:
+                    break
+                _record_chunk(chunk)
+        else:
+            while True:
+                to_read = max(4096, expected_bytes - len(received))
+                chunk = transport.read(to_read)
+                if not chunk:
+                    break
+                _record_chunk(chunk)
 
     t_send = perf_counter()
     t_last_send = t_send
     for k, pkt in enumerate(packets):
         if (not wait_each) and pace_fps and pace_fps > 0:
             t_target = t_send + (k / pace_fps)
-            now = perf_counter()
-            wait_dt = t_target - now
-            if wait_dt > 0:
-                _sleep(wait_dt)
+            while True:
+                now = perf_counter()
+                wait_dt = t_target - now
+                if wait_dt <= 0:
+                    break
+                if len(received) >= len(send_timestamps) * ASCII_FRAME_LEN:
+                    _sleep(wait_dt)
+                    break
+                _sleep(min(poll_step_sec, wait_dt))
+                _drain_available()
 
         t_pkt_send = perf_counter()
         t_last_send = t_pkt_send
@@ -262,13 +395,11 @@ def run_board_check(
                     if perf_counter() - t_pkt_send >= timeout or empty_reads >= 10000:
                         timed_out_flag = True
                         break
-                    _sleep(0.002)
+                    _sleep(poll_step_sec)
             if timed_out_flag:
                 break
-        elif getattr(transport, "in_waiting", 0) > 0:
-            early = transport.read(max(4096, expected_bytes - len(received)))
-            if early:
-                _record_chunk(early)
+        else:
+            _drain_available()
 
     empty_reads = 0
     while not timed_out_flag:
@@ -291,12 +422,27 @@ def run_board_check(
             if perf_counter() - t_last_send >= timeout or empty_reads >= 10000:
                 timed_out_flag = True
                 break
-            _sleep(0.002)
+            _sleep(poll_step_sec)
 
     t_done = perf_counter()
     elapsed_sec = t_done - t_send
     post_last_send_sec = t_done - t_last_send
     received_bytes = bytes(received)
+
+    first_byte_sec = (
+        frame_first_byte_sec[0]
+        if num_packets > 0 and frame_first_byte_sec[0] is not None
+        else raw_first_byte_sec
+    )
+    last_byte_sec = (
+        frame_first_byte_sec[-1]
+        if num_packets > 0 and frame_first_byte_sec[-1] is not None
+        else raw_last_byte_sec
+    )
+    valid_latencies_ms = [lat * 1000.0 for lat in frame_latencies_sec if lat is not None]
+    latency_min_ms = min(valid_latencies_ms) if valid_latencies_ms else None
+    latency_median_ms = statistics.median(valid_latencies_ms) if valid_latencies_ms else None
+    latency_max_ms = max(valid_latencies_ms) if valid_latencies_ms else None
 
     count_ok = len(received_bytes) == expected_bytes
     timed_out = bool(timed_out_flag or (post_last_send_sec > timeout))
@@ -307,7 +453,7 @@ def run_board_check(
 
     passed = bool(count_ok and (not timed_out) and byte_exact)
     return {
-        "frames": len(packets),
+        "frames": num_packets,
         "expected_bytes": expected_bytes,
         "received_bytes": len(received_bytes),
         "count_ok": count_ok,
@@ -317,6 +463,11 @@ def run_board_check(
         "timed_out": timed_out,
         "first_byte_sec": first_byte_sec,
         "last_byte_sec": last_byte_sec,
+        "frame_first_byte_sec": frame_first_byte_sec,
+        "frame_latencies_sec": frame_latencies_sec,
+        "latency_min_ms": latency_min_ms,
+        "latency_median_ms": latency_median_ms,
+        "latency_max_ms": latency_max_ms,
         "elapsed_sec": elapsed_sec,
         "send_timestamps": send_timestamps,
         "passed": passed,
@@ -326,7 +477,7 @@ def run_board_check(
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Uji loopback UART 921.600 8N1 PC <-> Basys 3 (kirim paket video, verifikasi ASCII golden). "
+            "Uji loopback UART 921.600 8N1 PC <-> Basys 3 (kirim paket video, baca RX bersamaan, verifikasi ASCII golden). "
             "Wajib set switch SW0 = 1 (Mode Streaming UART RX M2; SW0 = 0 = Mode Klip ROM M1)."
         )
     )
@@ -358,7 +509,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--pace-fps",
         type=float,
         default=30.0,
-        help="Laju pacing pengiriman antar-paket dalam FPS (default: 30.0; 0 menonaktifkan pacing). Diabaikan jika --wait-each aktif.",
+        help="Laju pacing pengiriman antar-paket dalam FPS (default: 30.0; 0 menonaktifkan pacing); RX tetap dibaca non-blocking selama jeda pacing. Diabaikan jika --wait-each aktif.",
     )
     parser.add_argument(
         "--wait-each",
@@ -438,6 +589,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     t_first = f"{res['first_byte_sec'] * 1000.0:.3f} ms" if res["first_byte_sec"] is not None else "N/A"
     t_last = f"{res['last_byte_sec'] * 1000.0:.3f} ms" if res["last_byte_sec"] is not None else "N/A"
+    if res["latency_min_ms"] is not None:
+        t_lat = (
+            f"min={res['latency_min_ms']:.3f} ms, "
+            f"median={res['latency_median_ms']:.3f} ms, "
+            f"maks={res['latency_max_ms']:.3f} ms"
+        )
+    else:
+        t_lat = "N/A"
 
     print(f"Target        : {target_label}")
     print(f"Frame Diuji   : {res['frames']} (harapan {res['expected_bytes']} B)")
@@ -446,6 +605,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"Timeout       : {'YA' if res['timed_out'] else 'TIDAK'} (batas {args.timeout:.2f} s)")
     print(f"Waktu Byte #1 : {t_first}")
     print(f"Waktu Byte #N : {t_last}")
+    print(f"Latensi Frame : {t_lat}")
     print(f"Status        : {'PASS' if res['passed'] else 'FAIL'}")
     print("=" * 60)
     return 0 if res["passed"] else 1

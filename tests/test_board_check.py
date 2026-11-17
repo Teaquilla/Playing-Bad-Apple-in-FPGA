@@ -15,6 +15,8 @@ import pytest
 
 from python.ascii_renderer import ASCII_FRAME_LEN
 from python.board_check import (
+    DEFAULT_RX_BUFFER_BYTES,
+    FakeSerial,
     discover_serial_ports,
     load_golden_ascii_hex,
     load_golden_packets,
@@ -656,3 +658,91 @@ def test_calibrate_av_file_vs_clip_option_selection():
     assert "--audio-start-sec" in cmd_clip
     assert cmd_clip[cmd_clip.index("--audio-start-sec") + 1] == "10.0"
     assert "--start-frame" not in cmd_clip
+
+
+def test_board_check_fake_serial_bounded_4096_5_and_90_frames_latency():
+    """FakeSerial buffer RX terbatas 4.096 B dengan jeda 11,5 ms per paket harus lulus
+    untuk 5 frame dan 90 frame @ 30 FPS karena RX dibaca bersamaan, sekaligus mengukur
+    latensi per frame (min/median/maks) dan Waktu Byte #1/#N per frame pertama/terakhir.
+    """
+    for n_frames in (5, 90):
+        packets = load_golden_packets(clip_path=STREAM_CLIP, frames=n_frames)
+        expected = load_golden_ascii_hex(hex_path=ASCII_HEX, expected_bytes=n_frames * ASCII_FRAME_LEN)
+        clk = FakeClock(start_time=50.0)
+        # respect_set_buffer_size=False mengunci kapasitas buffer RX tetap 4.096 B
+        ser = FakeSerial(
+            perf_counter=clk.now,
+            max_rx_bytes=4096,
+            frame_delay_sec=0.0115,
+            respect_set_buffer_size=False,
+        )
+        res = run_board_check(
+            transport=ser,
+            packets=packets,
+            expected_ascii=expected,
+            timeout=2.0,
+            perf_counter=clk.now,
+            pace_fps=30.0,
+        )
+        assert res["passed"] is True, f"Gagal pada {n_frames} frame: {res['mismatch_detail']}"
+        assert res["count_ok"] is True
+        assert res["byte_exact"] is True
+        assert res["timed_out"] is False
+        assert res["received_bytes"] == n_frames * ASCII_FRAME_LEN
+        assert ser.dropped_rx_bytes == 0
+        assert ser.set_buffer_size_calls == [DEFAULT_RX_BUFFER_BYTES]
+
+        assert res["first_byte_sec"] == pytest.approx(0.0115, abs=1e-6)
+        assert res["last_byte_sec"] == pytest.approx(((n_frames - 1) / 30.0) + 0.0115, abs=1e-6)
+        assert res["latency_min_ms"] == pytest.approx(11.5, abs=1e-3)
+        assert res["latency_median_ms"] == pytest.approx(11.5, abs=1e-3)
+        assert res["latency_max_ms"] == pytest.approx(11.5, abs=1e-3)
+        assert len(res["frame_latencies_sec"]) == n_frames
+
+
+def test_board_check_set_buffer_size_called_and_prevents_burst_overflow():
+    """Memverifikasi pemanggilan set_buffer_size(rx_size=262144) mencegah overflow pada burst >= 5 frame,
+    serta galat set_buffer_size ditangani dengan aman.
+    """
+    packets = load_golden_packets(clip_path=STREAM_CLIP, frames=5)
+    expected = load_golden_ascii_hex(hex_path=ASCII_HEX, expected_bytes=5 * ASCII_FRAME_LEN)
+
+    clk = FakeClock(start_time=10.0)
+    ser = FakeSerial(
+        perf_counter=clk.now,
+        max_rx_bytes=4096,
+        frame_delay_sec=0.0115,
+        respect_set_buffer_size=True,
+    )
+    res = run_board_check(
+        transport=ser,
+        packets=packets,
+        expected_ascii=expected,
+        timeout=2.0,
+        perf_counter=clk.now,
+        pace_fps=0.0,
+    )
+    assert res["passed"] is True, f"Overflow tanpa set_buffer_size: {res['mismatch_detail']}"
+    assert res["received_bytes"] == 5295
+    assert ser.dropped_rx_bytes == 0
+    assert ser.set_buffer_size_calls == [262144]
+
+    # Pastikan transport yang melempar OSError pada set_buffer_size tidak membuat run_board_check gagal
+    class RaisingBufferTransport(FakeTransport):
+        def __init__(self):
+            super().__init__(fake_fpga=FakeFPGA())
+            self.buf_called = False
+
+        def set_buffer_size(self, rx_size: int = 4096, tx_size=None) -> None:
+            self.buf_called = True
+            raise OSError("Simulated unsupported set_buffer_size")
+
+    tr_err = RaisingBufferTransport()
+    res_err = run_board_check(
+        transport=tr_err,
+        packets=packets[:1],
+        expected_ascii=expected[:ASCII_FRAME_LEN],
+        timeout=2.0,
+    )
+    assert tr_err.buf_called is True
+    assert res_err["passed"] is True
