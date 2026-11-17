@@ -14,7 +14,7 @@ Dokumen ini menyediakan panduan langkah demi langkah saat board Digilent Basys 3
 3. **Pengaturan Jumper Power & Konfigurasi:**
    - Jumper **JP1** (JTAG / SPI Flash): Setel ke posisi **JTAG** untuk pemrograman RAM sementara, atau **QSPI** jika memprogram flash memori non-volatile [DIASUMSIKAN].
    - Jumper **JP2** (Power Source): Setel ke **USB** (menghubungkan pin 1-2) [DIASUMSIKAN].
-4. **Sakelar Daya (Power Switch):** Geser sakelar daya **SW16** (sudut kiri atas) ke posisi **ON**. Pastikan LED merah penanda daya (`POWER` LD17) menyala terang [DIASUMSIKAN].
+4. **Sakelar Daya (Power Switch):** Geser sakelar daya **SW16** (sudut kiri atas) `[DIASUMSIKAN: label saklar daya Basys 3; pengguna memeriksa silkscreen]` ke posisi **ON**. Pastikan LED merah penanda daya (`POWER` LD17) menyala terang [DIASUMSIKAN].
 
 ---
 
@@ -228,11 +228,11 @@ Bagian ini merangkum urutan bring-up perangkat keras lengkap (UART ASCII + modul
 ### 9.1 Urutan Bring-Up Bertahap (Checklist)
 
 - [ ] **(a) Mode Clip (`SW0 = 0`) Tanpa OLED (`[DIASUMSIKAN]`):**
-  1. Pastikan sakelar daya `SW16` pada posisi `OFF` dan modul OLED **belum** dipasang.
+  1. Pastikan sakelar daya `SW16` (`[DIASUMSIKAN: label saklar daya Basys 3; pengguna memeriksa silkscreen]`) pada posisi `OFF` dan modul OLED **belum** dipasang.
   2. Siapkan folder rilis dengan menjalankan `powershell -ExecutionPolicy Bypass -File vivado/collect_release.ps1` (menyalin `top_baseline_compressed.bit` dan `.bin` dari `build_variants_4u_*` terbaru ke `release\m4\` serta menulis dan memverifikasi `release\m4\SHA256SUMS.txt`), lalu program bitstream `release\m4\top_baseline_compressed.bit` ke Basys 3.
      > [!CAUTION]
      > Gunakan bitstream rilis `release\m4\top_baseline_compressed.bit` yang dikumpulkan melalui `vivado/collect_release.ps1` (dari `build_variants_4u`); jalur bitstream rusak `scratch\build_variants` hasil 4t (`2.657` LUT; ROM klip kehilangan sebagian) **tidak boleh dipakai / jangan diprogram**.
-  3. Setel sakelar **`SW0` (pin `V17`) ke posisi `0` (DOWN)** (`SW0 = 0` = Mode Clip / Klip BRAM ROM `M1` sesuai `hdl/top.vhd`) dan nyalakan `SW16 = ON`.
+  3. Setel sakelar **`SW0` (pin `V17`) ke posisi `0` (DOWN)** (`SW0 = 0` = Mode Clip / Klip BRAM ROM `M1` sesuai `hdl/top.vhd`) dan nyalakan `SW16 = ON` (`[DIASUMSIKAN: label saklar daya Basys 3; pengguna memeriksa silkscreen]`).
   4. Buka terminal serial (`921600` baud, 8N1, tanpa flow control) dan pastikan terminal menampilkan animasi ASCII 90 frame dari klip ROM internal dengan lancar tanpa karakter rusak (`[DIASUMSIKAN]`).
 
 - [ ] **(b) Mode Streaming (`SW0 = 1`) dari `--fake-fpga` lalu Port Serial Nyata (`[DIASUMSIKAN]`):**
@@ -260,7 +260,7 @@ Bagian ini merangkum urutan bring-up perangkat keras lengkap (UART ASCII + modul
   5. Pastikan terminal host menampilkan animasi streaming UART RX -> RLE -> ASCII tanpa frame hilang (`[DIASUMSIKAN]`).
 
 - [ ] **(c) Pemasangan Modul OLED 7-Pin ke Header Pmod JA (`[DIASUMSIKAN]`):**
-  1. **Matikan daya (`SW16 = OFF`) dan cabut kabel USB** sebelum menyambungkan kabel jumper.
+  1. **Matikan daya (`SW16 = OFF`) `[DIASUMSIKAN: label saklar daya Basys 3; pengguna memeriksa silkscreen]` dan cabut kabel USB** sebelum menyambungkan kabel jumper.
   2. **Wajib diverifikasi pengguna terlebih dahulu:** Cocokkan pemetaan pada `constraints/basys3_m4_pmod.proposed.xdc` dengan **Tabel 6 *Basys 3 Reference Manual*** serta periksa urutan label (*silkscreen*) pin pada modul fisik OLED SSD1306 sebelum menghubungkan kabel (`[DIASUMSIKAN: belum diverifikasi pada board fisik]`).
   3. Pemetaan kabel usulan (`constraints/basys3_m4_pmod.proposed.xdc`, `[DIASUMSIKAN]`):
 
