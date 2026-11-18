@@ -72,6 +72,7 @@ Thumbs.db
 graphify-out/
 
 scratch/
+release/
 # Tolok ukur audio (CSV masa depan diabaikan, berkas tracked eksisting tetap dipertahankan)
 data/benchmarks/*.csv
 ~$*

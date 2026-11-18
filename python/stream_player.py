@@ -397,6 +397,7 @@ class StreamPlayer:
         self.total_frames_count: int = 0
         self.dropped_frames_count: int = 0
         self.sent_frames_count: int = 0
+        self.next_frame_index: int = 0
         self.send_timestamps: List[float] = []
         self.mono_timestamps: List[float] = []
         self.clock_timestamps: List[float] = []
@@ -473,7 +474,8 @@ class StreamPlayer:
         self,
         packets: List[bytes],
         start_frame: int = 0,
-        max_frames: Optional[int] = None
+        max_frames: Optional[int] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
     ) -> Dict[str, Any]:
         """Mengirimkan daftar paket frame dengan penjadwalan presisi clock.
 
@@ -485,6 +487,7 @@ class StreamPlayer:
             packets = packets[start_frame:end_idx]
 
         self.total_frames_count = len(packets)
+        self.next_frame_index = start_frame
         self.start_reader()
         t0 = self.clock.now()
         frame_interval = 1.0 / self.fps
@@ -500,6 +503,9 @@ class StreamPlayer:
         self.scheduled_timestamps.clear()
 
         for n, packet in enumerate(packets):
+            if should_stop is not None and should_stop():
+                break
+
             t_sched = t0 + (n * frame_interval) + self.av_offset_sec
             t_now = self.clock.now()
 
@@ -507,15 +513,19 @@ class StreamPlayer:
             if t_now > t_sched + drop_threshold:
                 # Frame terlambat: buang tanpa dikirim
                 self.dropped_frames_count += 1
+                self.next_frame_index = start_frame + n + 1
                 continue
 
             # Tunggu hingga jadwal pengiriman tiba
             if t_now < t_sched:
                 self.clock.sleep_until(t_sched)
+                if should_stop is not None and should_stop():
+                    break
 
             # Kirim paket ke FPGA
             self.transport.write(packet)
             self.sent_frames_count += 1
+            self.next_frame_index = start_frame + n + 1
             now_clock = self.clock.now()
             self.send_timestamps.append(now_clock)
             self.mono_timestamps.append(time.monotonic())

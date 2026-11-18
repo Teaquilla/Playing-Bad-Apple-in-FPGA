@@ -99,8 +99,8 @@ Legenda status: `[ ]` belum, `[~]` berjalan, `[x]` selesai dan terverifikasi.
 | ID | Tugas | Verifikasi | Status |
 |---|---|---|---|
 | T4.1 | **GATE:** tutup D-7 (SPI atau I2C) sesuai modul yang dibeli | Dicatat | [ ] |
-| T4.2 | Model perilaku SSD1306 di simulasi (rekonstruksi gambar dari byte) | Model menghasilkan gambar yang benar dari urutan inisialisasi dan data uji | [ ] |
-| T4.3 | Master SPI/I2C dan testbench | Waktu dan protokol sesuai (`oled_spi.vhd` dan `tb_oled_spi.vhd` selesai simulasi, READ_LATENCY=1 dan generic 2 terverifikasi). Belum terintegrasi ke top; belum diuji di board. | [-] |
+| T4.2 | Model perilaku SSD1306 di simulasi (rekonstruksi gambar dari byte) | Model perekam GDDRAM SSD1306 menghasilkan gambar yang benar dari urutan inisialisasi dan data uji pada `tb_oled_spi` dan `tb_top_oled`; selesai di simulasi dan terintegrasi ke `top.vhd`, belum diuji di board fisik | [-] |
+| T4.3 | Master SPI/I2C dan testbench | Waktu dan protokol sesuai (`oled_spi.vhd` dan `tb_oled_spi.vhd` selesai simulasi, READ_LATENCY=1 dan generic 2 terverifikasi); selesai di simulasi (`tb_oled_spi`, `tb_top_oled`) dan terintegrasi ke `top.vhd`, belum diuji di board fisik | [-] |
 | T4.4 | `oled_spi`: urutan inisialisasi dan konversi ke page-addressing | Gambar rekonstruksi di model sama dengan golden; selesai di simulasi (`tb_oled_spi`, `tb_top_oled`) dan terintegrasi ke `top.vhd`, belum diuji di board fisik (**catatan:** untuk M4 tidak ada uji gate-level / `funcsim`; `tb_top_funcsim` hanya berlaku untuk M1) | [-] |
 | T4.5 | Uji gambar statis lalu video di layar fisik | Tampil benar | [ ] |
 

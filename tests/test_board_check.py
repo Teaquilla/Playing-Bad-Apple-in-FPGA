@@ -15,6 +15,8 @@ import pytest
 
 from python.ascii_renderer import ASCII_FRAME_LEN
 from python.board_check import (
+    DEFAULT_RX_BUFFER_BYTES,
+    FakeSerial,
     discover_serial_ports,
     load_golden_ascii_hex,
     load_golden_packets,
@@ -300,7 +302,7 @@ def test_calibrate_av_dry_run_and_answer_parsing(capsys):
 
 
 def test_calibrate_av_default_cmd_and_alignment():
-    """Memverifikasi default build_stream_player_cmd (clip full, start 300, audio 10.0s, 600 frame)."""
+    """Memverifikasi default build_stream_player_cmd (stream full, start 300 saja tanpa duplikasi --audio-start-sec, 600 frame)."""
     assert DEFAULT_CLIP == "data/stream_full.bin"
     assert DEFAULT_START_FRAME == 300
     assert DEFAULT_AUDIO_START_SEC == 10.0
@@ -308,11 +310,126 @@ def test_calibrate_av_default_cmd_and_alignment():
 
     cmd = build_stream_player_cmd(0.0)
     joined = " ".join(cmd)
-    assert "--clip data/stream_full.bin" in joined
+    assert "--file data/stream_full.bin" in joined
+    assert "--clip" not in joined
     assert "--start-frame 300" in joined
-    assert "--audio-start-sec 10.0" in joined
+    assert "--audio-start-sec" not in joined
     assert "--max-frames 600" in joined
     assert DEFAULT_START_FRAME == pytest.approx(DEFAULT_AUDIO_START_SEC * 30.0)
+
+
+def test_audio_start_sample_fake_backend_three_cases(monkeypatch):
+    """Merekam sampel awal audio dengan --audio-backend fake untuk:
+    (a) --start-frame 300 saja,
+    (b) --audio-start-sec 10.0 saja pada klip 90 frame,
+    (c) kombinasi yang dibangun build_stream_player_cmd bawaan calibrate_av (harapan 441.000, bukan 882.000).
+    """
+    import python.stream_player as sp
+
+    wav_path = REPO_ROOT / "data" / "audio" / "bad_apple.wav"
+    if not wav_path.exists():
+        pytest.skip("data/audio/bad_apple.wav tidak tersedia")
+
+    recorded = []
+    orig_fake_audio = sp.FakeAudioDevice
+    orig_fake_fpga = sp.FakeFPGA
+
+    class RecordingFakeAudioDevice(orig_fake_audio):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            recorded.append(
+                {
+                    "start_sec": self.start_sec(),
+                    "start_sample": self.start_sample(),
+                    "sample_rate": self.sample_rate(),
+                }
+            )
+
+    fpgas = []
+
+    class RecordingFakeFPGA(orig_fake_fpga):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            fpgas.append(self)
+
+    monkeypatch.setattr(sp, "FakeAudioDevice", RecordingFakeAudioDevice)
+    monkeypatch.setattr(sp, "FakeFPGA", RecordingFakeFPGA)
+
+    # (a) --start-frame 300 saja pada stream_full.bin
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "python/stream_player.py",
+            "--fake-fpga",
+            "--no-display",
+            "--file",
+            "data/stream_full.bin",
+            "--audio",
+            "data/audio/bad_apple.wav",
+            "--audio-backend",
+            "fake",
+            "--start-frame",
+            "300",
+            "--max-frames",
+            "2",
+        ],
+    )
+    sp.main()
+    assert len(recorded) == 1
+    assert recorded[-1]["sample_rate"] == 44100
+    assert recorded[-1]["start_sec"] == pytest.approx(10.0)
+    assert recorded[-1]["start_sample"] == 441000
+    assert fpgas[-1].received_fids == [300, 301]
+
+    # (b) --audio-start-sec 10.0 saja pada klip 90 frame
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "python/stream_player.py",
+            "--fake-fpga",
+            "--no-display",
+            "--clip",
+            "data/golden/stream_clip.bin",
+            "--audio",
+            "data/audio/bad_apple.wav",
+            "--audio-backend",
+            "fake",
+            "--audio-start-sec",
+            "10.0",
+            "--max-frames",
+            "2",
+        ],
+    )
+    sp.main()
+    assert len(recorded) == 2
+    assert recorded[-1]["sample_rate"] == 44100
+    assert recorded[-1]["start_sec"] == pytest.approx(10.0)
+    assert recorded[-1]["start_sample"] == 441000
+
+    # (c) Kombinasi yang dibangun build_stream_player_cmd (calibrate_av bawaan)
+    default_cmd = build_stream_player_cmd(0.0)
+    assert "--start-frame" in default_cmd
+    assert "--audio-start-sec" not in default_cmd, (
+        "calibrate_av bawaan tidak boleh meneruskan --audio-start-sec bersamaan dengan --start-frame (risiko hitung ganda)"
+    )
+
+    # Evaluasi aditif: bila kedua opsi diteruskan bersamaan dan ditafsirkan aditif, total akan menjadi 882.000
+    sf_val = int(default_cmd[default_cmd.index("--start-frame") + 1]) if "--start-frame" in default_cmd else 0
+    as_val = float(default_cmd[default_cmd.index("--audio-start-sec") + 1]) if "--audio-start-sec" in default_cmd else 0.0
+    fps_val = float(default_cmd[default_cmd.index("--fps") + 1])
+    additive_samples = int(round((as_val + (sf_val / fps_val)) * 44100))
+    assert additive_samples == 441000, f"Risiko hitung ganda aditif: didapat {additive_samples} != 441000"
+
+    run_cmd = build_stream_player_cmd(0.0, frames=2, fake_fpga=True, no_display=True)
+    monkeypatch.setattr(sys, "argv", run_cmd[1:] + ["--audio-backend", "fake"])
+    sp.main()
+    assert len(recorded) == 3
+    assert recorded[-1]["sample_rate"] == 44100
+    assert recorded[-1]["start_sec"] == pytest.approx(10.0)
+    assert recorded[-1]["start_sample"] == 441000
+    assert fpgas[-1].received_fids == [300, 301]
 
 
 def test_calibrate_av_start_frame_audio_mismatch_raises():
@@ -324,8 +441,8 @@ def test_calibrate_av_start_frame_audio_mismatch_raises():
         build_stream_player_cmd(0.0, start_frame=300, audio_start_sec=5.0, fps=30.0)
 
 
-def test_calibrate_av_clip_frame_count_bounds():
-    """Memvalidasi batas jumlah paket clip: 600 frame pada stream_clip.bin gagal, pada stream_full.bin lolos."""
+def test_calibrate_av_clip_frame_count_bounds(tmp_path):
+    """Memvalidasi batas jumlah paket clip: 600 frame pada stream_clip.bin gagal, pada stream >= 900 frame lolos."""
     # data/golden/stream_clip.bin hanya berisi 90 frame
     with pytest.raises(ValueError, match="melebihi jumlah paket"):
         validate_clip_frame_count(STREAM_CLIP, start_frame=0, frames=600)
@@ -345,13 +462,25 @@ def test_calibrate_av_clip_frame_count_bounds():
     with pytest.raises(ValueError):
         validate_clip_frame_count(STREAM_CLIP, start_frame=-1, frames=10)
 
-    # data/stream_full.bin berisi 1000 paket -> [300, 900) valid
-    full_clip = str(REPO_ROOT / "data" / "stream_full.bin")
+    # data/stream_full.bin dapat berisi 1.000 frame (parsial) atau 6.532 frame (penuh);
+    # jika belum ada di repo hasil clone baru, uji memakai berkas sementara 1.000 paket.
+    full_clip_path = REPO_ROOT / "data" / "stream_full.bin"
+    if full_clip_path.exists():
+        full_clip = str(full_clip_path)
+        clip_arg = "data/stream_full.bin"
+    else:
+        pkts = load_golden_packets(clip_path=STREAM_CLIP, frames=90)
+        synth_bytes = b"".join(pkts[i % 90] for i in range(1000))
+        tmp_clip = tmp_path / "stream_1000.bin"
+        tmp_clip.write_bytes(synth_bytes)
+        full_clip = str(tmp_clip)
+        clip_arg = full_clip
+
     total_pkts = validate_clip_frame_count(full_clip, start_frame=300, frames=600)
-    assert total_pkts == 1000
+    assert total_pkts >= 1000
     cmd = build_stream_player_cmd(
         -20.0,
-        clip="data/stream_full.bin",
+        clip=clip_arg,
         start_frame=300,
         audio_start_sec=10.0,
         frames=600,
@@ -473,3 +602,159 @@ def test_board_check_wait_each_waits_for_1059_bytes_per_frame():
     assert res_stall["timed_out"] is True
     assert res_stall["passed"] is False
     assert len(tr_stall.writes) == 1
+
+
+def test_board_check_90_frames_pace_30_timeout_from_last_packet():
+    """Dengan jam palsu: 90 frame @ pace 30 FPS (~3,0 s) & timeout 2,0 s wajib lulus,
+    dan timeout tetap terdeteksi bila tidak ada byte setelah paket terakhir dikirim.
+    """
+    packets = load_golden_packets(clip_path=STREAM_CLIP, frames=90)
+    expected = load_golden_ascii_hex(hex_path=ASCII_HEX, expected_bytes=90 * ASCII_FRAME_LEN)
+
+    # Skenario 1: seluruh 95.310 byte diterima segera setelah paket ke-90 dikirim -> PASS
+    clk_pass = FakeClock(start_time=10.0)
+    res_pass = run_board_check(
+        transport=FakeTransport(fake_fpga=FakeFPGA()),
+        packets=packets,
+        expected_ascii=expected,
+        timeout=2.0,
+        perf_counter=clk_pass.now,
+        pace_fps=30.0,
+    )
+    assert res_pass["passed"] is True
+    assert res_pass["timed_out"] is False
+    assert res_pass["count_ok"] is True
+    assert res_pass["byte_exact"] is True
+    assert res_pass["received_bytes"] == 90 * ASCII_FRAME_LEN
+    assert len(res_pass["send_timestamps"]) == 90
+    assert res_pass["elapsed_sec"] == pytest.approx(89.0 / 30.0, abs=1e-6)
+
+    # Skenario 2: 0 byte tiba setelah paket terakhir dikirim -> timeout terdeteksi 2.0 s setelah paket ke-90
+    clk_fail = FakeClock(start_time=10.0)
+    silent_transport = ScriptedFakeSerial(rx_chunks=[])
+    res_fail = run_board_check(
+        transport=silent_transport,
+        packets=packets,
+        expected_ascii=expected,
+        timeout=2.0,
+        perf_counter=clk_fail.now,
+        pace_fps=30.0,
+    )
+    assert res_fail["received_bytes"] == 0
+    assert res_fail["timed_out"] is True
+    assert res_fail["passed"] is False
+    assert len(res_fail["send_timestamps"]) == 90
+    assert res_fail["elapsed_sec"] >= (89.0 / 30.0) + 2.0 - 1e-6
+
+
+def test_calibrate_av_file_vs_clip_option_selection():
+    """Memverifikasi calibrate_av memilih --file untuk data/stream_full.bin dan --clip untuk stream_clip.bin."""
+    cmd_full = build_stream_player_cmd(0.0)
+    assert "--file" in cmd_full
+    assert cmd_full[cmd_full.index("--file") + 1] == "data/stream_full.bin"
+    assert "--clip" not in cmd_full
+    assert "--start-frame" in cmd_full
+    assert cmd_full[cmd_full.index("--start-frame") + 1] == "300"
+    assert "--audio-start-sec" not in cmd_full
+
+    cmd_clip = build_stream_player_cmd(
+        0.0,
+        clip="data/golden/stream_clip.bin",
+        start_frame=0,
+        audio_start_sec=10.0,
+        frames=90,
+    )
+    assert "--clip" in cmd_clip
+    assert cmd_clip[cmd_clip.index("--clip") + 1] == "data/golden/stream_clip.bin"
+    assert "--file" not in cmd_clip
+    assert "--audio-start-sec" in cmd_clip
+    assert cmd_clip[cmd_clip.index("--audio-start-sec") + 1] == "10.0"
+    assert "--start-frame" not in cmd_clip
+
+
+def test_board_check_fake_serial_bounded_4096_5_and_90_frames_latency():
+    """FakeSerial buffer RX terbatas 4.096 B dengan jeda 11,5 ms per paket harus lulus
+    untuk 5 frame dan 90 frame @ 30 FPS karena RX dibaca bersamaan, sekaligus mengukur
+    latensi per frame (min/median/maks) dan Waktu Byte #1/#N per frame pertama/terakhir.
+    """
+    for n_frames in (5, 90):
+        packets = load_golden_packets(clip_path=STREAM_CLIP, frames=n_frames)
+        expected = load_golden_ascii_hex(hex_path=ASCII_HEX, expected_bytes=n_frames * ASCII_FRAME_LEN)
+        clk = FakeClock(start_time=50.0)
+        # respect_set_buffer_size=False mengunci kapasitas buffer RX tetap 4.096 B
+        ser = FakeSerial(
+            perf_counter=clk.now,
+            max_rx_bytes=4096,
+            frame_delay_sec=0.0115,
+            respect_set_buffer_size=False,
+        )
+        res = run_board_check(
+            transport=ser,
+            packets=packets,
+            expected_ascii=expected,
+            timeout=2.0,
+            perf_counter=clk.now,
+            pace_fps=30.0,
+        )
+        assert res["passed"] is True, f"Gagal pada {n_frames} frame: {res['mismatch_detail']}"
+        assert res["count_ok"] is True
+        assert res["byte_exact"] is True
+        assert res["timed_out"] is False
+        assert res["received_bytes"] == n_frames * ASCII_FRAME_LEN
+        assert ser.dropped_rx_bytes == 0
+        assert ser.set_buffer_size_calls == [DEFAULT_RX_BUFFER_BYTES]
+
+        assert res["first_byte_sec"] == pytest.approx(0.0115, abs=1e-6)
+        assert res["last_byte_sec"] == pytest.approx(((n_frames - 1) / 30.0) + 0.0115, abs=1e-6)
+        assert res["latency_min_ms"] == pytest.approx(11.5, abs=1e-3)
+        assert res["latency_median_ms"] == pytest.approx(11.5, abs=1e-3)
+        assert res["latency_max_ms"] == pytest.approx(11.5, abs=1e-3)
+        assert len(res["frame_latencies_sec"]) == n_frames
+
+
+def test_board_check_set_buffer_size_called_and_prevents_burst_overflow():
+    """Memverifikasi pemanggilan set_buffer_size(rx_size=262144) mencegah overflow pada burst >= 5 frame,
+    serta galat set_buffer_size ditangani dengan aman.
+    """
+    packets = load_golden_packets(clip_path=STREAM_CLIP, frames=5)
+    expected = load_golden_ascii_hex(hex_path=ASCII_HEX, expected_bytes=5 * ASCII_FRAME_LEN)
+
+    clk = FakeClock(start_time=10.0)
+    ser = FakeSerial(
+        perf_counter=clk.now,
+        max_rx_bytes=4096,
+        frame_delay_sec=0.0115,
+        respect_set_buffer_size=True,
+    )
+    res = run_board_check(
+        transport=ser,
+        packets=packets,
+        expected_ascii=expected,
+        timeout=2.0,
+        perf_counter=clk.now,
+        pace_fps=0.0,
+    )
+    assert res["passed"] is True, f"Overflow tanpa set_buffer_size: {res['mismatch_detail']}"
+    assert res["received_bytes"] == 5295
+    assert ser.dropped_rx_bytes == 0
+    assert ser.set_buffer_size_calls == [262144]
+
+    # Pastikan transport yang melempar OSError pada set_buffer_size tidak membuat run_board_check gagal
+    class RaisingBufferTransport(FakeTransport):
+        def __init__(self):
+            super().__init__(fake_fpga=FakeFPGA())
+            self.buf_called = False
+
+        def set_buffer_size(self, rx_size: int = 4096, tx_size=None) -> None:
+            self.buf_called = True
+            raise OSError("Simulated unsupported set_buffer_size")
+
+    tr_err = RaisingBufferTransport()
+    res_err = run_board_check(
+        transport=tr_err,
+        packets=packets[:1],
+        expected_ascii=expected[:ASCII_FRAME_LEN],
+        timeout=2.0,
+    )
+    assert tr_err.buf_called is True
+    assert res_err["passed"] is True

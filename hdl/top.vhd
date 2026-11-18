@@ -18,18 +18,23 @@ use ieee.numeric_std.all;
 
 entity top is
     generic (
-        CLK_FREQ_HZ  : integer := 100_000_000;
-        BAUD_RATE    : integer := 921_600;
-        TARGET_FPS   : integer := 30;
-        TOTAL_FRAMES   : integer := 90;
-        INIT_FILE      : string  := "data/golden/clip_bram_32bit.hex";
-        OLED_REMAP_SEG : std_logic_vector(7 downto 0) := x"A1";
-        OLED_REMAP_COM : std_logic_vector(7 downto 0) := x"C8"
+        CLK_FREQ_HZ         : integer := 100_000_000;
+        BAUD_RATE           : integer := 921_600;
+        TARGET_FPS          : integer := 30;
+        TOTAL_FRAMES        : integer := 90;
+        INIT_FILE           : string  := "data/golden/clip_bram_32bit.hex";
+        OLED_REMAP_SEG      : std_logic_vector(7 downto 0) := x"A1";
+        OLED_REMAP_COM      : std_logic_vector(7 downto 0) := x"C8";
+        BTN_DEBOUNCE_CYCLES : integer := 1_000_000
     );
     port (
-        clk  : in  std_logic;                                      -- Pin W5: Osilator 100 MHz
-        btnC : in  std_logic;                                      -- Pin U18: Tombol Reset
-        sw   : in  std_logic_vector(0 downto 0) := (others => '0');-- Pin V17: Saklar SW0 (0: Klip, 1: Streaming)
+        clk       : in  std_logic;                                      -- Pin W5: Osilator 100 MHz
+        btnC      : in  std_logic;                                      -- Pin U18: Reset (+ Restart streaming saat SW0=1)
+        btnU      : in  std_logic := '0';                               -- Pin T18: Play / Pause (SW0=1)
+        btnR      : in  std_logic := '0';                               -- Pin T17: Forward +5 detik (SW0=1)
+        btnL      : in  std_logic := '0';                               -- Pin W19: Backward -5 detik (SW0=1)
+        btnD      : in  std_logic := '0';                               -- Pin U17: Stop / Kembali Standby (SW0=1)
+        sw        : in  std_logic_vector(0 downto 0) := (others => '0');-- Pin V17: Saklar SW0 (0: Klip, 1: Streaming)
         RsRx      : in  std_logic := '1';                               -- Pin B18: UART RX dari PC
         RsTx      : out std_logic;                                      -- Pin A18: UART TX ke PC
         led       : out std_logic_vector(7 downto 0);                   -- Pin U16..V14: Status LED
@@ -124,12 +129,35 @@ architecture rtl of top is
     signal oled_frame_pending : std_logic := '0';
     signal oled_rd_addr       : std_logic_vector(9 downto 0);
 
-    -- 7. ASCII Sink ke UART TX
-    signal sink_start    : std_logic;
-    signal sink_busy     : std_logic;
-    signal sink_tx_data  : std_logic_vector(7 downto 0);
-    signal sink_tx_valid : std_logic;
-    signal sink_tx_ready : std_logic;
+    -- 7. ASCII Sink ke UART TX & Kanal Perintah Tombol PC (M4+)
+    signal sink_start       : std_logic;
+    signal sink_busy        : std_logic;
+    signal sink_tx_data     : std_logic_vector(7 downto 0);
+    signal sink_tx_valid    : std_logic;
+    signal sink_tx_ready    : std_logic;
+    signal uart_tx_data_mux  : std_logic_vector(7 downto 0);
+    signal uart_tx_valid_mux : std_logic;
+    signal uart_tx_ready_sig : std_logic;
+
+    constant CMD_PLAY_PAUSE : std_logic_vector(7 downto 0) := x"11"; -- btnU
+    constant CMD_FWD_5S     : std_logic_vector(7 downto 0) := x"12"; -- btnR
+    constant CMD_BWD_5S     : std_logic_vector(7 downto 0) := x"13"; -- btnL
+    constant CMD_RESTART    : std_logic_vector(7 downto 0) := x"14"; -- btnC (saat SW0=1)
+    constant CMD_STOP       : std_logic_vector(7 downto 0) := x"15"; -- btnD
+
+    signal btn_meta      : std_logic_vector(3 downto 0) := (others => '0');
+    signal btn_sync      : std_logic_vector(3 downto 0) := (others => '0');
+    signal btn_deb       : std_logic_vector(3 downto 0) := (others => '0');
+    signal btn_deb_prev  : std_logic_vector(3 downto 0) := (others => '0');
+    type btn_cnt_arr_t is array (0 to 3) of integer range 0 to BTN_DEBOUNCE_CYCLES;
+    signal btn_cnt       : btn_cnt_arr_t := (others => 0);
+
+    signal btnc_hold_cnt : integer range 0 to BTN_DEBOUNCE_CYCLES := 0;
+    signal btnc_armed    : std_logic := '0';
+
+    signal cmd_pending   : std_logic := '0';
+    signal cmd_byte      : std_logic_vector(7 downto 0) := (others => '0');
+    signal cmd_fire      : std_logic;
 
     -- 8. Register Status & Latch Galat LED
     signal latched_underrun        : std_logic := '0';
@@ -381,8 +409,97 @@ begin
         );
 
     ---------------------------------------------------------------------------
-    -- 9. Pemancar UART Serial (uart_tx)
+    -- 9. Pemancar UART Serial (uart_tx) + Kanal Perintah Kontrol ke PC (SW0=1)
     ---------------------------------------------------------------------------
+    -- Tracking tekan lama btnC (> BTN_DEBOUNCE_CYCLES) untuk memicu Restart video PC saat SW0=1.
+    -- Tidak memakai rst_int agar pulsa reset simulasi singkat (100 ns) tidak mengirim byte tambahan.
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if sw_sync = '0' then
+                btnc_hold_cnt <= 0;
+                btnc_armed    <= '0';
+            elsif rst_sync = '1' then
+                if btnc_hold_cnt < BTN_DEBOUNCE_CYCLES then
+                    btnc_hold_cnt <= btnc_hold_cnt + 1;
+                else
+                    btnc_armed <= '1';
+                end if;
+            else
+                btnc_hold_cnt <= 0;
+                if rst_int = '0' and cmd_pending = '0' then
+                    btnc_armed <= '0';
+                end if;
+            end if;
+        end if;
+    end process;
+
+    -- Sinkronisasi, debounce, dan antrean 1-byte perintah tombol (btnU, btnR, btnL, btnD, btnC)
+    process(clk)
+        variable raw_vec : std_logic_vector(3 downto 0);
+    begin
+        if rising_edge(clk) then
+            raw_vec  := btnU & btnR & btnL & btnD;
+            btn_meta <= raw_vec;
+            btn_sync <= btn_meta;
+
+            if rst_int = '1' then
+                btn_deb      <= (others => '0');
+                btn_deb_prev <= (others => '0');
+                btn_cnt      <= (others => 0);
+                cmd_pending  <= '0';
+            else
+                for i in 0 to 3 loop
+                    if btn_sync(i) /= btn_deb(i) then
+                        if btn_cnt(i) + 1 >= BTN_DEBOUNCE_CYCLES then
+                            btn_deb(i) <= btn_sync(i);
+                            btn_cnt(i) <= 0;
+                        else
+                            btn_cnt(i) <= btn_cnt(i) + 1;
+                        end if;
+                    else
+                        btn_cnt(i) <= 0;
+                    end if;
+                end loop;
+                btn_deb_prev <= btn_deb;
+
+                -- Kosongkan cmd_pending tepat pada siklus saat u_uart_tx menerimanya
+                if cmd_fire = '1' then
+                    cmd_pending <= '0';
+                end if;
+
+                -- Hanya aktif kirim perintah saat Mode Streaming PC (SW0 = 1)
+                if sw_sync = '1' then
+                    if btnc_armed = '1' and rst_sync = '0' then
+                        cmd_byte    <= CMD_RESTART;
+                        cmd_pending <= '1';
+                    elsif btn_deb(3) = '1' and btn_deb_prev(3) = '0' then
+                        cmd_byte    <= CMD_PLAY_PAUSE;
+                        cmd_pending <= '1';
+                    elsif btn_deb(2) = '1' and btn_deb_prev(2) = '0' then
+                        cmd_byte    <= CMD_FWD_5S;
+                        cmd_pending <= '1';
+                    elsif btn_deb(1) = '1' and btn_deb_prev(1) = '0' then
+                        cmd_byte    <= CMD_BWD_5S;
+                        cmd_pending <= '1';
+                    elsif btn_deb(0) = '1' and btn_deb_prev(0) = '0' then
+                        cmd_byte    <= CMD_STOP;
+                        cmd_pending <= '1';
+                    end if;
+                end if;
+            end if;
+        end if;
+    end process;
+
+    -- Sisipkan byte perintah hanya saat jeda antar-frame ASCII agar tidak merusak sequence VT100
+    cmd_fire <= '1' when (cmd_pending = '1' and rst_int = '0' and
+                          sink_busy = '0' and sink_tx_valid = '0' and
+                          sink_start = '0' and uart_tx_ready_sig = '1') else '0';
+
+    uart_tx_data_mux  <= cmd_byte when cmd_fire = '1' else sink_tx_data;
+    uart_tx_valid_mux <= '1'      when cmd_fire = '1' else sink_tx_valid;
+    sink_tx_ready     <= '0'      when cmd_fire = '1' else uart_tx_ready_sig;
+
     u_uart_tx : entity work.uart_tx
         generic map (
             CLK_FREQ_HZ => CLK_FREQ_HZ,
@@ -391,9 +508,9 @@ begin
         port map (
             clk      => clk,
             rst      => rst_int,
-            tx_data  => sink_tx_data,
-            tx_valid => sink_tx_valid,
-            tx_ready => sink_tx_ready,
+            tx_data  => uart_tx_data_mux,
+            tx_valid => uart_tx_valid_mux,
+            tx_ready => uart_tx_ready_sig,
             RsTx     => RsTx
         );
 
