@@ -441,8 +441,8 @@ def test_calibrate_av_start_frame_audio_mismatch_raises():
         build_stream_player_cmd(0.0, start_frame=300, audio_start_sec=5.0, fps=30.0)
 
 
-def test_calibrate_av_clip_frame_count_bounds():
-    """Memvalidasi batas jumlah paket clip: 600 frame pada stream_clip.bin gagal, pada stream_full.bin lolos."""
+def test_calibrate_av_clip_frame_count_bounds(tmp_path):
+    """Memvalidasi batas jumlah paket clip: 600 frame pada stream_clip.bin gagal, pada stream >= 900 frame lolos."""
     # data/golden/stream_clip.bin hanya berisi 90 frame
     with pytest.raises(ValueError, match="melebihi jumlah paket"):
         validate_clip_frame_count(STREAM_CLIP, start_frame=0, frames=600)
@@ -462,13 +462,25 @@ def test_calibrate_av_clip_frame_count_bounds():
     with pytest.raises(ValueError):
         validate_clip_frame_count(STREAM_CLIP, start_frame=-1, frames=10)
 
-    # data/stream_full.bin berisi 1000 paket -> [300, 900) valid
-    full_clip = str(REPO_ROOT / "data" / "stream_full.bin")
+    # data/stream_full.bin dapat berisi 1.000 frame (parsial) atau 6.532 frame (penuh);
+    # jika belum ada di repo hasil clone baru, uji memakai berkas sementara 1.000 paket.
+    full_clip_path = REPO_ROOT / "data" / "stream_full.bin"
+    if full_clip_path.exists():
+        full_clip = str(full_clip_path)
+        clip_arg = "data/stream_full.bin"
+    else:
+        pkts = load_golden_packets(clip_path=STREAM_CLIP, frames=90)
+        synth_bytes = b"".join(pkts[i % 90] for i in range(1000))
+        tmp_clip = tmp_path / "stream_1000.bin"
+        tmp_clip.write_bytes(synth_bytes)
+        full_clip = str(tmp_clip)
+        clip_arg = full_clip
+
     total_pkts = validate_clip_frame_count(full_clip, start_frame=300, frames=600)
-    assert total_pkts == 1000
+    assert total_pkts >= 1000
     cmd = build_stream_player_cmd(
         -20.0,
-        clip="data/stream_full.bin",
+        clip=clip_arg,
         start_frame=300,
         audio_start_sec=10.0,
         frames=600,

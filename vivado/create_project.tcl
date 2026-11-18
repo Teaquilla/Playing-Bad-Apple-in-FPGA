@@ -77,11 +77,16 @@ set_property file_type {VHDL 2008} [get_files *.vhd]
 # 5. Pengaturan simulasi default (run -all saat dipicu dari GUI)
 set_property -name {xsim.simulate.runtime} -value {all} -objects [get_filesets sim_1]
 
-# 6. Salin vektor golden data/golden ke direktori simulasi xsim agar path relatif "data/golden/..." terbaca di GUI
-set xsim_data_dir "$proj_dir/BadApple.sim/sim_1/behav/xsim/data/golden"
+# 6. Salin vektor golden data/golden ke direktori simulasi xsim & sintesis synth_1 agar path relatif "data/golden/..." terbaca di GUI
+set xsim_data_dir  "$proj_dir/BadApple.sim/sim_1/behav/xsim/data/golden"
+set synth_data_dir "$proj_dir/BadApple.runs/synth_1/data/golden"
 file mkdir $xsim_data_dir
+file mkdir $synth_data_dir
 foreach f [glob -nocomplain "$root/data/golden/*"] {
     file copy -force $f $xsim_data_dir
+}
+if {[file exists "$root/data/golden/clip_bram_32bit.hex"]} {
+    file copy -force "$root/data/golden/clip_bram_32bit.hex" $synth_data_dir
 }
 
 update_compile_order -fileset sources_1
